@@ -188,4 +188,4 @@ app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname+'/public/index.html'))
 })
 
-server.listen(process.env.PORT |3000, () => console.log(`Lisening on port 3000`))
+server.listen(process.env.PORT || 3000, () => console.log(`Lisening on port 3000`))
