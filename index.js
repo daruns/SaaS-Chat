@@ -58,6 +58,7 @@ const isUsersExist = async function(userIds, brand_code) {
 		return false
 	}
 }
+
 ConnectedUser.query().delete().then(() => {})
 JoinedRoom.query().delete().then(() => {})
 
@@ -96,7 +97,7 @@ wss.on('connection', function(ws, req) {
 			console.log(new Date(),"finished authentication")
 			currentUser = JSON.parse(requestedE)
 			ws.Context = currentUser.id
-			ConnectedUser.query().insert({brand_code: currentUser.brandCode, socket_id: await ws._socket._handle.fd, user_id: currentUser.id})
+			ConnectedUser.query().insert({brand_code: currentUser.brandCode, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
 			let rooms = await getRoomByUserId(currentUser.id, currentUser.brandCode)
 
 			let resx = JSON.stringify({rooms: rooms})
@@ -152,7 +153,7 @@ wss.on('connection', function(ws, req) {
 								client.send(resx);
 							}
 						})
-						Message.query().insert(messageParams);
+						Message.query().insert(messageParams).then(() => {});
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
