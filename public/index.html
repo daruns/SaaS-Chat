@@ -209,11 +209,14 @@ body{
             </div>`;
         }
         // Create WebSocket connection.
-        const socket = new WebSocket('ws://localhost:3000');
+        const socket = new WebSocket('ws://oneconnect.it:3000')
     
         // Connection opened
         socket.addEventListener('open', function (event) {
-            console.log('Connected to WS Server')
+          socket.send(JSON.stringify({accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJkZXZ0ZXN0IiwiYnJhbmRDb2RlIjoiZGV2dGVzdCIsImlhdCI6MTYzODc0MTA3MSwiZXhwIjoxNjM5MzQ1ODcxfQ.qf3FV0jodGf_jAH_2wD6_cvpS0jUlye6H2wPrv9ODhg"}) );
+
+          console.log("connected server");
+          console.log(event);
         });
     
         const getTime = (unix) => {
@@ -230,12 +233,7 @@ body{
         socket.addEventListener('message', function (event) {
             console.log(event);
             console.log('Message from server ', event.data);
-            
-            let msg1 = event.data.split("=:=:=");
-            let login = msg1[0];
-            let msg = msg1[1];
-            let date = msg1[2];
-            add(login, msg, getTime(date));
+            add("ssss", event.data, new Date());
         });
 
        
@@ -243,7 +241,11 @@ body{
         const send = () => {
             let login = document.querySelector("#name").value;
             let text = document.querySelector("#msg").value;
-            socket.send(`${login}=:=:=${text}`);
+            let body = JSON.stringify ({
+              user: login,
+              body: text
+            })
+            socket.send(`${body}`);
             document.querySelector("#msg").value = '';
             document.querySelector("#msg").focus();
             add(login, text, getTime());
