@@ -12,6 +12,22 @@ class Message extends Model {
   static get tableName() {
     return 'messages';
   }
+
+  static get relationMappings() {
+    // Importing models here is one way to avoid require loops.
+    const {Room} = require('./room.model');
+
+    return {
+      room: {
+        relation: Model.BelongsToOneRelation,
+        modelClass: Room,
+        join: {
+          from: 'messages.room_id',
+          to: 'rooms.id'
+        }
+      },
+    };
+  }
 }
 
 module.exports = {

@@ -12,6 +12,26 @@ class User extends Model {
   static get tableName() {
     return 'users';
   }
+
+  static get relationMappings() {
+    // Importing models here is one way to avoid require loops.
+    const {Room} = require('./room.model');
+
+    return {
+      rooms: {
+        relation: Model.ManyToManyRelation,
+        modelClass: Room,
+        join: {
+          from: 'users.id',
+          through: {
+            from: 'room_users.user_id',
+            to: 'room_users.room_id'
+          },
+          to: 'rooms.id'
+        }
+      },
+    };
+  }
 }
 
 module.exports = {

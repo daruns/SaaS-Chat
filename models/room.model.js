@@ -12,21 +12,35 @@ class Room extends Model {
     return 'rooms';
   }
 
-  // static get relationMappings() {
-  //   return {
-  //     relation: Model.ManyToManyRelation,
-  //     modelClass: require(''),
-  //     join: {
-  //       from: 'rooms.id',
-  //       through: {
-  //         from: 'room_users.actorId',
-  //         to: 'room_users.movieId',
-  //         extra: ['characterName']
-  //       },
-  //       to: 'movies.id'
-  //     }
-  //   };
-  // }
+  static get relationMappings() {
+    // Importing models here is one way to avoid require loops.
+    const {User} = require('./user.model');
+    const {Message} = require('./message.model');
+
+    return {
+      users: {
+        relation: Model.ManyToManyRelation,
+        modelClass: User,
+        join: {
+          from: 'rooms.id',
+          through: {
+            from: 'room_users.room_id',
+            to: 'room_users.user_id'
+          },
+          to: 'users.id'
+        }
+      },
+
+      messages: {
+        relation: Model.HasManyRelation,
+        modelClass: Message,
+        join: {
+          from: 'rooms.id',
+          to: 'messages.room_id'
+        }
+      },
+    };
+  }
 }
 
 module.exports = {
