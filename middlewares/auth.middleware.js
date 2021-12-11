@@ -3,8 +3,8 @@ var cfg = require("../config/config");
 const jwt = require('jsonwebtoken')
 
 module.exports = {
-    authenticate: async function(token) {
-    const verifiedJwt = await jwt.verify(token, cfg.jwtSecret)
+  authenticate: async function(token) {
+    const verifiedJwt = await jwt.verify(token.replace(" ", ''), cfg.jwtSecret)
     if (!verifiedJwt) {
       const message = err.name === 'TokenExpiredError' ? err.message : 'Unauthorized'
       throw message
