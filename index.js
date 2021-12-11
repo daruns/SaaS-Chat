@@ -45,9 +45,9 @@ const getRoomByUserId = async function(userId, brandCode) {
 			builder.select('attachments.size');
 		},
 		selectMessageRecipientParams(builder) {
-			builder.select('message_recipient.id');
-			builder.select('message_recipient.status');
-			builder.select('message_recipient.user_id');
+			builder.select('message_recipients.id');
+			builder.select('message_recipients.status');
+			builder.select('message_recipients.user_id');
 		}
 	})
 	.withGraphFetched(
@@ -94,6 +94,44 @@ const areUsersExistInRoom = async function(userIds, roomId) {
 	}
 }
 
+const getMessageById = async function(id) {
+	let message = Message.query().select('messages.id','messages.text','messages.user_id','messages.room_id')
+	.findById(id)
+	.modifiers({
+		selectUserId(builder) {
+			builder.select('users.id');
+			builder.select('users.username');
+			builder.select('users.name');
+			builder.select('users.avatar');
+		},
+		selectAttachmentParams(builder) {
+			builder.select('attachments.id');
+			builder.select('attachments.url');
+			builder.select('attachments.content_type');
+			builder.select('attachments.size');
+		},
+		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.id');
+			builder.select('message_recipients.status');
+			builder.select('message_recipients.user_id');
+		}
+	})
+	.withGraphFetched(
+		`
+		[
+			user(selectUserId),
+			messageRecipients(selectMessageRecipientParams).[user(selectUserId)],
+			attachments(selectAttachmentParams)
+		]
+		`
+	)
+	if (message) {
+		return message
+	} else {
+		return false
+	}
+}
+
 // ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
 // JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
@@ -108,16 +146,12 @@ function s4() {
 }
 
 wss.on('connection', function(ws, req) {
-	const getUniqueID = (s4() + s4() + '-' + s4())
-	// ws.Context = getUniqueID
 	var authenticatedUs
 	var currentUser = {}
 
 	console.log("client socket id: ", ws._socket._handle.fd);
 	ws.on('message', async function(message) {
 		const parsedMessage = JSON.parse(message)
-		console.log("client Uontext: ", ws.Context);
-		console.log("client Uontext: ", currentUser);
 // authunticate user
 		if (parsedMessage.accessToken) {
 			authenticatedUs = parsedMessage.accessToken
@@ -225,9 +259,13 @@ wss.on('connection', function(ws, req) {
 					if (resul.includes(currentUser.id)) {
 						Message.query().insert(messageParams).then(async (msg) => {
 							if (msg) {
-								if (parsedMessage.files && typeof parsedMessage.files === 'object') {
-									for (let fileId of parsedMessage.files) {
-										if ((typeof fileId === 'number') && fileId > 0) await msg.$relatedQuery('attachments').relate(fileId)
+								console.log(typeof parsedMessage.createMessage.files)
+								if (parsedMessage.createMessage.files && typeof parsedMessage.createMessage.files === 'object') {
+									for (let fileId of parsedMessage.createMessage.files) {
+										console.log(fileId);
+										if ((typeof fileId === 'number') && fileId > 0) {
+											console.log("msg file related", await msg.$relatedQuery('attachments').relate(fileId))
+										}
 									}
 								}
 							}
@@ -236,7 +274,8 @@ wss.on('connection', function(ws, req) {
 							msg['user']['name'] = currentUser.name
 							msg['user']['username'] = currentUser.username
 							msg['user']['avatar'] = currentUser.avatar
-							console.log(msg);
+							const messfinal = await getMessageById(msg.id)
+							console.log("message created--------- ", messfinal);
 							let resx = JSON.stringify({messagePerRoom: {msg}})
 							wss.clients.forEach(function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -281,7 +320,7 @@ wss.on('connection', function(ws, req) {
 					})
 // recieve user status changing
 				} else if (parsedMessage.seenStatus && parsedMessage.seenStatus.room_id) {
-					Message.query().where({room_id: parsedMessage.seenStatus.room_id}).withGraphFetched({messageRecipient: {user: true}})
+					Message.query().where({room_id: parsedMessage.seenStatus.room_id}).withGraphFetched({messageRecipients: {user: true}})
 
 					.then((room) => {
 						if (room) {

@@ -18,6 +18,7 @@ class Message extends Model {
     // Importing models here is one way to avoid require loops.
     const {Room} = require('./room.model');
     const {Attachment} = require('./attachment.model');
+    const {User} = require('./user.model');
 
     return {
       attachments : {
@@ -48,6 +49,14 @@ class Message extends Model {
           to: 'rooms.id'
         }
       },
+      user: {
+        relation: Model.BelongsToOneRelation,
+        modelClass: User,
+        join: {
+          from: 'messages.user_id',
+          to: 'users.id'
+        }
+      }
     };
   }
 }

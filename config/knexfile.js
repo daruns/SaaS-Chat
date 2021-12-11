@@ -3,10 +3,10 @@ module.exports = {
   development: {
     client: 'mysql',
     connection: {
-      host: 'oneconnect.it',
-      database: 'oneconne_test_datahub',
-      user: 'oneconne_oneconnectit2021',
-      password: 'iU#FgpEvu,uF6;K].y',
+      host: process.env.DB_HOST,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
       charset: 'utf8',
     },
     migrations: {
@@ -20,10 +20,10 @@ module.exports = {
   production: {
     client: 'mysql',
     connection: {
-      host: 'oneconnect.it',
-      database: 'oneconne_test_datahub',
-      user: 'oneconne_oneconnectit2021',
-      password: 'iU#FgpEvu,uF6;K].y',
+      host: process.env.DB_HOST,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
       charset: 'utf8',
     },
     pool: {
