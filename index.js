@@ -25,6 +25,8 @@ const getRoomByUserId = async function(userId, brandCode) {
 		selectId(builder) {
 			builder.select('rooms.id');
 			builder.select('rooms.name');
+			builder.select('rooms.created_by');
+			builder.select('rooms.created_at');
 		},
 		selectUserId(builder) {
 			builder.select('users.id');
@@ -37,6 +39,8 @@ const getRoomByUserId = async function(userId, brandCode) {
 			builder.select('messages.text');
 			builder.select('messages.user_id');
 			builder.select('messages.room_id');
+			builder.select('messages.created_by');
+			builder.select('messages.created_at');
 		},
 		selectAttachmentParams(builder) {
 			builder.select('attachments.id');
@@ -45,6 +49,8 @@ const getRoomByUserId = async function(userId, brandCode) {
 			builder.select('attachments.size');
 		},
 		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.created_by');
+			builder.select('message_recipients.created_at');
 			builder.select('message_recipients.id');
 			builder.select('message_recipients.status');
 			builder.select('message_recipients.user_id');
@@ -53,7 +59,16 @@ const getRoomByUserId = async function(userId, brandCode) {
 	.withGraphFetched(
 		`
 		[
-			rooms(selectId).[users(selectUserId),messages(selectMessageParams).[attachments(selectAttachmentParams), messageRecipients(selectMessageRecipientParams)]],
+			rooms(selectId).[
+				users(selectUserId),
+				messages(selectMessageParams).[
+					attachments(selectAttachmentParams),
+					user(selectUserId),
+					messageRecipients(selectMessageRecipientParams).[
+						user(selectUserId)
+					],
+				]
+			],
 		]
 		`
 	)
@@ -95,7 +110,13 @@ const areUsersExistInRoom = async function(userIds, roomId) {
 }
 
 const getMessageById = async function(id) {
-	let message = Message.query().select('messages.id','messages.text','messages.user_id','messages.room_id')
+	let message = Message.query()
+	.select('messages.id')
+	.select('messages.text')
+	.select('messages.user_id')
+	.select('messages.room_id')
+	.select('messages.created_by')
+	.select('messages.created_at')
 	.findById(id)
 	.modifiers({
 		selectUserId(builder) {
@@ -111,6 +132,8 @@ const getMessageById = async function(id) {
 			builder.select('attachments.size');
 		},
 		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.created_by');
+			builder.select('message_recipients.created_at');
 			builder.select('message_recipients.id');
 			builder.select('message_recipients.status');
 			builder.select('message_recipients.user_id');
