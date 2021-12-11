@@ -1,10 +1,12 @@
 'use strict';
-
+const dotenv = require('dotenv');
+dotenv.config();
 const app = require('express')()
 const server = require('http').createServer(app);
 const WebSocket = require('ws');
 const path = require('path');
 const request = require("request-promise");
+const {authenticate} = require("./middlewares/auth.middleware");
 
 const { ConnectedUser } = require('./models/connectedUser.model');
 const { Message } = require('./models/message.model');
@@ -12,33 +14,50 @@ const { JoinedRoom } = require('./models/joinedRoom.model');
 const { RoomUser } = require('./models/roomUser.model');
 const { Room } = require('./models/room.model');
 const { User } = require('./models/user.model');
+const { MessageRecipient } = require('./models/messageRecipient.model')
 
 const findMessagesForRoom = async function(roomId) {
-return await Message.query().where('room_id', roomId).limit(100)
+	return await Message.query().where('room_id', roomId).limit(100)
 }
-
 const getRoomByUserId = async function(userId, brandCode) {
 	let rooms = await User.query().select().where('brand_code', brandCode).findById(userId)
 	.modifiers({
 		selectId(builder) {
 			builder.select('rooms.id');
-			builder.select('name');
+			builder.select('rooms.name');
 		},
 		selectUserId(builder) {
 			builder.select('users.id');
-			builder.select('username');
-			builder.select('name');
-			builder.select('avatar');
+			builder.select('users.username');
+			builder.select('users.name');
+			builder.select('users.avatar');
 		},
+		selectMessageParams(builder) {
+			builder.select('messages.id');
+			builder.select('messages.text');
+			builder.select('messages.user_id');
+			builder.select('messages.room_id');
+		},
+		selectAttachmentParams(builder) {
+			builder.select('attachments.id');
+			builder.select('attachments.url');
+			builder.select('attachments.content_type');
+			builder.select('attachments.size');
+		},
+		selectMessageRecipientParams(builder) {
+			builder.select('message_recipient.id');
+			builder.select('message_recipient.status');
+			builder.select('message_recipient.user_id');
+		}
 	})
 	.withGraphFetched(
 		`
 		[
-			rooms(selectId).[users(selectUserId),messages],
+			rooms(selectId).[users(selectUserId),messages(selectMessageParams).[attachments(selectAttachmentParams), messageRecipients(selectMessageRecipientParams)]],
 		]
 		`
 	)
-
+	delete rooms.password ? delete rooms.password : false
 	return rooms
 }
 const createJoinedRoomService = function(socket_id, user_id, room_id) {
@@ -49,8 +68,7 @@ const createJoinedRoomService = function(socket_id, user_id, room_id) {
 	})
 }
 
-const isUsersExist = async function(userIds, brand_code) {
-	console.log(userIds)
+const areUsersExist = async function(userIds, brand_code) {
 	let usersFnd = await User.query().select('id').where('brand_code',brand_code).findByIds(userIds)
 	if (usersFnd && usersFnd.length === userIds.length) {
 		return true
@@ -58,9 +76,29 @@ const isUsersExist = async function(userIds, brand_code) {
 		return false
 	}
 }
+const areAllUsersExistInRoom = async function(userIds, roomId) {
+	let usersFnd = await RoomUser.query().select('id').where('room_id',roomId).whereIn('user_id', userIds)
+	if (usersFnd.length === userIds.length) {
+		return true
+	} else {
+		return false
+	}
+}
 
-ConnectedUser.query().delete().then(() => {})
-JoinedRoom.query().delete().then(() => {})
+const areUsersExistInRoom = async function(userIds, roomId) {
+	let usersFnd = await RoomUser.query().select('id').where('room_id',roomId).whereIn('user_id', userIds)
+	if (usersFnd.length) {
+		return true
+	} else {
+		return false
+	}
+}
+
+// ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
+// JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
+// Message.query().delete().then(() => {console.log("deleted All Message!!")})
+// RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
+// Room.query().delete().then(() => {console.log("deleted All Room!!")})
 
 const wss = new WebSocket.Server({
 	server: server
@@ -76,29 +114,24 @@ wss.on('connection', function(ws, req) {
 	var currentUser = {}
 
 	console.log("client socket id: ", ws._socket._handle.fd);
-	console.log("client Uontext: ", ws.Context);
 	ws.on('message', async function(message) {
 		const parsedMessage = JSON.parse(message)
-
+		console.log("client Uontext: ", ws.Context);
+		console.log("client Uontext: ", currentUser);
 // authunticate user
 		if (parsedMessage.accessToken) {
 			authenticatedUs = parsedMessage.accessToken
-			console.log(new Date(),"started authentication: ")
-			let requestedE = await request({
-				url: 'https://onconnect-backend-api.herokuapp.com/api/v1/auth/me',
-				headers: {
-					'Authorization': 'Bearer ' + authenticatedUs
-				},
-				rejectUnauthorized: false
-			}).catch(err => {
-				ws.send(JSON.stringify({body:"unauthorized"}))
+			console.log(new Date(),"started authentication")
+			currentUser = await authenticate(authenticatedUs)
+			.catch(err => {
+				console.log("Error from authenticate accessToken", err)
+				ws.send(JSON.stringify({Error: "Unauthorized"}))
 				ws.close()
 			})
 			console.log(new Date(),"finished authentication")
-			currentUser = JSON.parse(requestedE)
 			ws.Context = currentUser.id
-			ConnectedUser.query().insert({brand_code: currentUser.brandCode, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
-			let rooms = await getRoomByUserId(currentUser.id, currentUser.brandCode)
+			ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
+			let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
 
 			let resx = JSON.stringify({rooms: rooms})
 // send rooms to current client
@@ -109,30 +142,74 @@ wss.on('connection', function(ws, req) {
 				if (parsedMessage.createRoom && parsedMessage.createRoom.users && parsedMessage.createRoom.users.length) {
 					let isContiune = false
 					let roomUsers = parsedMessage.createRoom.users.filter( i => {return i != currentUser.id} )
-					isContiune = (await isUsersExist(roomUsers, currentUser.brandCode))
+					isContiune = (await areUsersExist(roomUsers, currentUser.brand_code))
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
 						let roomParams = {
 							name: currentUser.username,
-							brand_code: currentUser.brandCode,
+							brand_code: currentUser.brand_code,
 						}
 						let roomUsersWithMy = roomUsersId.concat( {user_id: currentUser.id})
 						let insertedRoom = await Room.query().insert(roomParams)
-						roomUsersWithMy.forEach(e => {
-							insertedRoom.$relatedQuery('users')
-							.relate(e.user_id)
-							.then(e => console.log(e))
-						})
-						let rooms = await getRoomByUserId(currentUser.id, currentUser.brandCode)
+						for (let room of roomUsersWithMy) {
+							await insertedRoom.$relatedQuery('users').relate(room.user_id)
+						}
+						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
 						let resx = JSON.stringify({rooms: rooms})
 // broadcast new added room
 						wss.clients.forEach(function each(client) {
-							if (roomUsers.concat(currentUser.id) && client.readyState === WebSocket.OPEN) {
+							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								client.send(resx);
 							}
 						});
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
+					}
+//recieve new users for room
+				} else if (parsedMessage.addRoomUsers && parsedMessage.addRoomUsers.id && parsedMessage.addRoomUsers.users && parsedMessage.addRoomUsers.users.length) {
+					const roomUsers = parsedMessage.addRoomUsers.users.filter( i => {return i != currentUser.id} )
+					const isRoomExist = await Room.query().findById(parsedMessage.addRoomUsers.id)
+					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.addRoomUsers.id})
+					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
+					const areUsersExistInRoomById = (await areUsersExistInRoom(roomUsers, parsedMessage.addRoomUsers.id))
+
+					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
+						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
+						for (let room of roomUsersId) {
+							await isRoomExist.$relatedQuery('users').relate(room.user_id)
+						}
+						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+						let resx = JSON.stringify({rooms: rooms})
+// broadcast new added users to room
+						wss.clients.forEach(function each(client) {
+							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								client.send(resx);
+							}
+						});
+					} else {
+						ws.send(JSON.stringify({Error: "somethingWrong: isRoomExist && existMyUserInRoom && !areUsersExistInUsers && !areUsersExistInRoomById"}))
+					}
+//recieve delete users from room
+				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
+					const roomUsers = parsedMessage.deleteRoomUsers.users;
+					const isRoomExist = await Room.query().findById(parsedMessage.deleteRoomUsers.id)
+					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.deleteRoomUsers.id})
+					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
+					const areAllUsersExistInRoomById = (await areAllUsersExistInRoom(roomUsers, parsedMessage.deleteRoomUsers.id))
+					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && areAllUsersExistInRoomById) {
+						await isRoomExist.$relatedQuery('users')
+						.unrelate()
+						.whereIn('users.id', roomUsers)
+						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+						let resx = JSON.stringify({rooms: rooms})
+// broadcast all rooms without deleted users from room
+						wss.clients.forEach(function each(client) {
+							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								client.send(resx);
+							}
+						});
+					} else {
+						ws.send(JSON.stringify({Error: "somethingWrong: isRoomExist && existMyUserInRoom && !areUsersExistInUsers && !areAllUsersExistInRoomById"}))
 					}
 // receive messages
 				} else if (parsedMessage.createMessage && parsedMessage.createMessage.text && parsedMessage.createMessage.room_id) {
@@ -146,17 +223,94 @@ wss.on('connection', function(ws, req) {
 
 					let resul = roomUsers.map(e=> e.user_id)
 					if (resul.includes(currentUser.id)) {
-						let resx = JSON.stringify({messagePerRoom: {text: messageParams.text, room_id: messageParams.room_id, user_id: messageParams.user_id}})
-						wss.clients.forEach(function each(client) {
-							if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
-// broadcast messages
-								client.send(resx);
+						Message.query().insert(messageParams).then(async (msg) => {
+							if (msg) {
+								if (parsedMessage.files && typeof parsedMessage.files === 'object') {
+									for (let fileId of parsedMessage.files) {
+										if ((typeof fileId === 'number') && fileId > 0) await msg.$relatedQuery('attachments').relate(fileId)
+									}
+								}
 							}
+							msg["user"] = {}
+							msg["user"]['id'] = currentUser.id
+							msg['user']['name'] = currentUser.name
+							msg['user']['username'] = currentUser.username
+							msg['user']['avatar'] = currentUser.avatar
+							console.log(msg);
+							let resx = JSON.stringify({messagePerRoom: {msg}})
+							wss.clients.forEach(function each(client) {
+								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+// broadcast messages
+									client.send(resx);
+								}
+							})
 						})
-						Message.query().insert(messageParams).then(() => {});
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
+// recieve user typing
+				} else if (parsedMessage.typing && parsedMessage.typing.room_id) {
+					console.log(typeof parsedMessage.typing.room_id)
+					Room.query().findById(parsedMessage.typing.room_id).withGraphFetched({users: true})
+					.then((room) => {
+						if (room) {
+							console.log("finished first part -----------------------",room)
+							if (room.users) if (roomUsers.includes(currentUser.id)) {
+								let roomUsers = room.users.map(e => e.id)
+								console.log("finished second part -----------------------",roomUsers)
+								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
+								console.log("finished fourth part -----------------------", roomUsers)
+								let resx = JSON.stringify({userTyping: {user_id: currentUser.id, room_id: room.id}})
+								wss.clients.forEach(function each(client) {
+									console.log("finished fifth part -----------------------",client.Context)
+									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
+									console.log("finished sixth part -----------------------",client._socket._handle.fd)
+// broadcast typing
+										client.send(resx);
+									}
+								})
+							} else {
+								ws.send(JSON.stringify({Error: "RoomNotFound",explain: roomUsers}))
+							}
+						} else {
+							ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
+						}
+					})
+					.catch(e => {
+						ws.send(JSON.stringify({Error: "RoomNotFound",explain: e}))
+					})
+// recieve user status changing
+				} else if (parsedMessage.seenStatus && parsedMessage.seenStatus.room_id) {
+					Message.query().where({room_id: parsedMessage.seenStatus.room_id}).withGraphFetched({messageRecipient: {user: true}})
+
+					.then((room) => {
+						if (room) {
+							console.log("finished first part -----------------------",room)
+							if (room.users) if (roomUsers.includes(currentUser.id)) {
+								let roomUsers = room.users.map(e => e.id)
+								console.log("finished second part -----------------------",roomUsers)
+								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
+								console.log("finished fourth part -----------------------", roomUsers)
+								let resx = JSON.stringify({userTyping: {user_id: currentUser.id, room_id: room.id}})
+								wss.clients.forEach(function each(client) {
+									console.log("finished fifth part -----------------------",client.Context)
+									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
+									console.log("finished sixth part -----------------------",client._socket._handle.fd)
+// broadcast typing
+										client.send(resx);
+									}
+								})
+							} else {
+								ws.send(JSON.stringify({Error: "RoomNotFound",explain: roomUsers}))
+							}
+						} else {
+							ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
+						}
+					})
+					.catch(e => {
+						ws.send(JSON.stringify({Error: "RoomNotFound",explain: e}))
+					})
+// recieve user joined to a room
 				} else if (parsedMessage.joinRoom && parsedMessage.joinRoom.room_id) {
 					const messages = await findMessagesForRoom(parsedMessage.joinRoom.room_id); // { limit: 10, page: 1 }
 					// Save Connection to Room
@@ -176,7 +330,7 @@ wss.on('connection', function(ws, req) {
 					ws.send(JSON.stringify({Error: "paramsMissing"}))
 				}
 			} else {
-				ws.send(JSON.stringify({Error: "unauthorized"}))
+				ws.send(JSON.stringify({Error: "Unauthorized"}))
 				ws.close()
 			}
 		}
@@ -189,4 +343,4 @@ app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname+'/public/index.html'))
 })
 
-server.listen(process.env.PORT || 3000, () => console.log(`Lisening on port 3000`))
+server.listen(process.env.PORT || 3000, () => console.log(`Lisening on port ${process.env.PORT}`))

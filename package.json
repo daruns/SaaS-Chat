@@ -15,8 +15,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^10.0.0",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
+    "jsonwebtoken": "^8.5.1",
+    "jwt-simple": "^0.5.6",
     "knex": "^0.95.14",
     "light": "^1.14.0",
     "medoo.js": "^1.1.13",
@@ -24,6 +27,9 @@
     "mysql2": "^2.3.3",
     "nodemon": "^2.0.7",
     "objection": "^3.0.0",
+    "passport": "^0.5.0",
+    "passport-jwt": "^4.0.0",
+    "passport-local": "^1.0.0",
     "request": "^2.88.2",
     "request-promise": "^4.2.6",
     "ws": "^7.3.0"

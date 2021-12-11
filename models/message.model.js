@@ -1,6 +1,7 @@
 const { Model } = require('objection');
 const Knex = require('knex');
 const config = require('../config/knexfile');
+const { MessageRecipient } = require('./messageRecipient.model');
 const isProd = process.env.NODE_ENV === 'production';
 const connection = isProd ? config.production : config.development;
 const knex = Knex(connection);
@@ -16,8 +17,29 @@ class Message extends Model {
   static get relationMappings() {
     // Importing models here is one way to avoid require loops.
     const {Room} = require('./room.model');
+    const {Attachment} = require('./attachment.model');
 
     return {
+      attachments : {
+        relation: Model.ManyToManyRelation,
+        modelClass: Attachment,
+        join: {
+          from: 'messages.id',
+          through: {
+            from: 'message_attachments.message_id',
+            to: 'message_attachments.attachment_id',
+          },
+          to: 'attachments.id'
+        }
+      },
+      messageRecipients : {
+        relation: Model.HasManyRelation,
+        modelClass: MessageRecipient,
+        join: {
+          from: 'messages.id',
+          to: 'message_recipients.message_id'
+        }
+      },
       room: {
         relation: Model.BelongsToOneRelation,
         modelClass: Room,

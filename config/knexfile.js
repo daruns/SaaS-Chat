@@ -18,11 +18,13 @@ module.exports = {
   },
 
   production: {
-    client: 'postgresql',
+    client: 'mysql',
     connection: {
-      database: 'my_db',
-      user:     'username',
-      password: 'password'
+      host: 'oneconnect.it',
+      database: 'oneconne_test_datahub',
+      user: 'oneconne_oneconnectit2021',
+      password: 'iU#FgpEvu,uF6;K].y',
+      charset: 'utf8',
     },
     pool: {
       min: 2,

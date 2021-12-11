@@ -87,11 +87,13 @@ body{
     margin-top: 10px;
     padding: 20px;
     overflow: auto;
+    width: 100%;
+    word-wrap: break-word;
 }
-.chat__messages .chat-message{
+.chat__messages .chat-message .message{
     background: #2196f3;
     color: #fff;
-    width: fit-content;
+    width: 100%;
     border-radius: 10px;
     padding: 10px;
     /* border-bottom-left-radius: 0px; */
@@ -202,18 +204,19 @@ body{
             .replace(/'/g, "&#039;");
       }
         function add(login, text, date){
+          console.log(JSON.stringify(text, undefined, 4))
             document.querySelector('.chat__messages').innerHTML += `
-            <div class="chat-message">
+            <div class="chat-message" >
                 <div class="user">${login}</div>
-                <div class="message" data-date="${date}">${escapeHtml(text)}</div>
+                <p class="message" data-date="${date}">${JSON.stringify(text, undefined, 4)}</p>
             </div>`;
         }
         // Create WebSocket connection.
-        const socket = new WebSocket('ws://oneconnect.it:3000')
+        const socket = new WebSocket('ws://localhost:3000')
     
         // Connection opened
         socket.addEventListener('open', function (event) {
-          socket.send(JSON.stringify({accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJkZXZ0ZXN0IiwiYnJhbmRDb2RlIjoiZGV2dGVzdCIsImlhdCI6MTYzODc0MTA3MSwiZXhwIjoxNjM5MzQ1ODcxfQ.qf3FV0jodGf_jAH_2wD6_cvpS0jUlye6H2wPrv9ODhg"}) );
+          socket.send(JSON.stringify({accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NjksInVzZXJuYW1lIjoidGV4dCIsImJyYW5kQ29kZSI6InRleHQxMjM0IiwiaWF0IjoxNjM4OTg0ODI2LCJleHAiOjE2Mzk1ODk2MjZ9.cWIHh3KzxZZhyik3uHtxZKRI_LaWAUXcnLcFp0cvZM0"}) );
 
           console.log("connected server");
           console.log(event);
@@ -231,9 +234,11 @@ body{
 
         // Listen for messages
         socket.addEventListener('message', function (event) {
-            console.log(event);
-            console.log('Message from server ', event.data);
-            add("ssss", event.data, new Date());
+          console.log(event);
+          console.log('Message from server ', JSON.parse(event.data));
+          add("ssss", JSON.parse(event.data), new Date());
+          var messageBody = document.querySelector('.chat__messages');
+          messageBody.scrollTop = messageBody.scrollHeight - messageBody.clientHeight;
         });
 
        
