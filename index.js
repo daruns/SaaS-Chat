@@ -2,10 +2,9 @@
 const dotenv = require('dotenv');
 dotenv.config();
 const app = require('express')()
-const server = require('http').createServer(app);
+const server = (process.env === "production") ? require('https').createServer({cert: fs.readFileSync(process.env.SSL_PATH),key: fs.readFileSync(process.env.SSL_PATH)}) : require('http').createServer(app);
 const WebSocket = require('ws');
 const path = require('path');
-const request = require("request-promise");
 const {authenticate} = require("./middlewares/auth.middleware");
 
 const { ConnectedUser } = require('./models/connectedUser.model');
@@ -14,67 +13,8 @@ const { JoinedRoom } = require('./models/joinedRoom.model');
 const { RoomUser } = require('./models/roomUser.model');
 const { Room } = require('./models/room.model');
 const { User } = require('./models/user.model');
-const { MessageRecipient } = require('./models/messageRecipient.model')
+const { MessageRecipient } = require('./models/messageRecipient.model');
 
-const findMessagesForRoom = async function(roomId) {
-	return await Message.query().where('room_id', roomId).limit(100)
-}
-const getRoomByUserId = async function(userId, brandCode) {
-	let rooms = await User.query().select().where('brand_code', brandCode).findById(userId)
-	.modifiers({
-		selectId(builder) {
-			builder.select('rooms.id');
-			builder.select('rooms.name');
-			builder.select('rooms.created_by');
-			builder.select('rooms.created_at');
-		},
-		selectUserId(builder) {
-			builder.select('users.id');
-			builder.select('users.username');
-			builder.select('users.name');
-			builder.select('users.avatar');
-		},
-		selectMessageParams(builder) {
-			builder.select('messages.id');
-			builder.select('messages.text');
-			builder.select('messages.user_id');
-			builder.select('messages.room_id');
-			builder.select('messages.created_by');
-			builder.select('messages.created_at');
-		},
-		selectAttachmentParams(builder) {
-			builder.select('attachments.id');
-			builder.select('attachments.url');
-			builder.select('attachments.content_type');
-			builder.select('attachments.size');
-		},
-		selectMessageRecipientParams(builder) {
-			builder.select('message_recipients.created_by');
-			builder.select('message_recipients.created_at');
-			builder.select('message_recipients.id');
-			builder.select('message_recipients.status');
-			builder.select('message_recipients.user_id');
-		}
-	})
-	.withGraphFetched(
-		`
-		[
-			rooms(selectId).[
-				users(selectUserId),
-				messages(selectMessageParams).[
-					attachments(selectAttachmentParams),
-					user(selectUserId),
-					messageRecipients(selectMessageRecipientParams).[
-						user(selectUserId)
-					],
-				]
-			],
-		]
-		`
-	)
-	delete rooms.password ? delete rooms.password : false
-	return rooms
-}
 const createJoinedRoomService = function(socket_id, user_id, room_id) {
 	return JoinedRoom.query.insert({
 		socket_id: socket_id,
@@ -108,14 +48,82 @@ const areUsersExistInRoom = async function(userIds, roomId) {
 		return false
 	}
 }
+const findMessagesForRoom = async function(roomId) {
+	return await Message.query().where('room_id', roomId).limit(100)
+}
+const getRoomByUserId = async function(userId, brandCode) {
+	let rooms = await User.query().select().where('brand_code', brandCode).findById(userId)
+	.modifiers({
+		selectId(builder) {
+			builder.select('rooms.id');
+			builder.select('rooms.name');
+			builder.select('rooms.creator_id');
+			builder.select('rooms.created_at');
+		},
+		selectUserId(builder) {
+			builder.select('users.id');
+			builder.select('users.username');
+			builder.select('users.name');
+			builder.select('users.avatar');
+		},
+		selectMessageParams(builder) {
+			builder.select('messages.id');
+			builder.select('messages.text');
+			builder.select('messages.user_id');
+			builder.select('messages.room_id');
+			builder.select('messages.created_at');
+		},
+		selectAttachmentParams(builder) {
+			builder.select('attachments.id');
+			builder.select('attachments.url');
+			builder.select('attachments.content_type');
+			builder.select('attachments.size');
+		},
+		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.created_at');
+			builder.select('message_recipients.id');
+			builder.select('message_recipients.status');
+			builder.select('message_recipients.user_id');
+		}
+	})
+	.withGraphFetched(
+		`
+		[
+			rooms(selectId).[
+				users(selectUserId),
+				messages(selectMessageParams).[
+					attachments(selectAttachmentParams),
+					user(selectUserId),
+					messageRecipients(selectMessageRecipientParams).[
+						user(selectUserId)
+					],
+				]
+			],
+		]
+		`
+	)
+	delete rooms.password ? delete rooms.password : false
+	return rooms
+}
 
+const deliverAllUnreadMessages = async function(userId) {
+	return await MessageRecipient.query()
+	// .select('message_recipients.*')
+	.join('messages','message_recipients.message_id','messages.id')
+	.join('room_users','messages.room_id','room_users.room_id')
+	.where('message_recipients.status','not_delivered')
+	.where('room_users.user_id',userId)
+	.whereNot('messages.user_id',userId)
+	.where('message_recipients.user_id',userId)
+	.update({'message_recipients.status':"delivered"})
+
+}
 const getMessageById = async function(id) {
 	let message = Message.query()
 	.select('messages.id')
 	.select('messages.text')
 	.select('messages.user_id')
 	.select('messages.room_id')
-	.select('messages.created_by')
 	.select('messages.created_at')
 	.findById(id)
 	.modifiers({
@@ -132,11 +140,17 @@ const getMessageById = async function(id) {
 			builder.select('attachments.size');
 		},
 		selectMessageRecipientParams(builder) {
-			builder.select('message_recipients.created_by');
 			builder.select('message_recipients.created_at');
 			builder.select('message_recipients.id');
 			builder.select('message_recipients.status');
 			builder.select('message_recipients.user_id');
+		},
+		selectRoomParams(builder) {
+			builder.select('rooms.id');
+			builder.select('rooms.name');
+			builder.select('rooms.creator_id');
+			builder.select('rooms.created_at');
+
 		}
 	})
 	.withGraphFetched(
@@ -144,7 +158,8 @@ const getMessageById = async function(id) {
 		[
 			user(selectUserId),
 			messageRecipients(selectMessageRecipientParams).[user(selectUserId)],
-			attachments(selectAttachmentParams)
+			attachments(selectAttachmentParams),
+			room(selectRoomParams).users(selectUserId),
 		]
 		`
 	)
@@ -155,8 +170,8 @@ const getMessageById = async function(id) {
 	}
 }
 
-// ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
-// JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
+ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
+JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
 // RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
 // Room.query().delete().then(() => {console.log("deleted All Room!!")})
@@ -187,6 +202,8 @@ wss.on('connection', function(ws, req) {
 			})
 			console.log(new Date(),"finished authentication")
 			ws.Context = currentUser.id
+			ws.send(JSON.stringify({messagesRecipients: await deliverAllUnreadMessages(currentUser.id)}))
+
 			ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
 			let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
 
@@ -202,8 +219,10 @@ wss.on('connection', function(ws, req) {
 					isContiune = (await areUsersExist(roomUsers, currentUser.brand_code))
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
+						let roomUsersNames = (await User.query().select('name').findByIds(roomUsersId)).map(e => e.name).join(', ')
 						let roomParams = {
-							name: currentUser.username,
+							creator_id: currentUser.id,
+							name: parsedMessage.createRoom.name ? parsedMessage.createRoom.name : roomUsersNames,
 							brand_code: currentUser.brand_code,
 						}
 						let roomUsersWithMy = roomUsersId.concat( {user_id: currentUser.id})
@@ -276,13 +295,14 @@ wss.on('connection', function(ws, req) {
 						room_id: parsedMessage.createMessage.room_id,
 					}
 					let roomUsers = await RoomUser.query().select('user_id').where('room_id',messageParams.room_id)
-					console.log(roomUsers);
-
 					let resul = roomUsers.map(e=> e.user_id)
+					let msgRecipientsParams = {}
+					for (let reks of resul) {
+						msgRecipientsParams[Number(reks)] = 'not_delivered'
+					}
 					if (resul.includes(currentUser.id)) {
 						Message.query().insert(messageParams).then(async (msg) => {
 							if (msg) {
-								console.log(typeof parsedMessage.createMessage.files)
 								if (parsedMessage.createMessage.files && typeof parsedMessage.createMessage.files === 'object') {
 									for (let fileId of parsedMessage.createMessage.files) {
 										console.log(fileId);
@@ -292,14 +312,18 @@ wss.on('connection', function(ws, req) {
 									}
 								}
 							}
-							msg["user"] = {}
-							msg["user"]['id'] = currentUser.id
-							msg['user']['name'] = currentUser.name
-							msg['user']['username'] = currentUser.username
-							msg['user']['avatar'] = currentUser.avatar
+							// let connusers = await ConnectedUser.query().whereIn('user_id',resul)
+							// let joindusers = await JoinedUser.query().where('room_id',msg.room_id).whereIn('user_id',resul)
+							for (let client of await wss.clients) {
+								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+									msgRecipientsParams[Number(client.Context)] = "delivered"
+								}
+							}
+							for (let msrcparam of Object.keys(msgRecipientsParams)) {
+								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert",e)})
+							}
 							const messfinal = await getMessageById(msg.id)
-							console.log("message created--------- ", messfinal);
-							let resx = JSON.stringify({messagePerRoom: {msg}})
+							let resx = JSON.stringify({messagePerRoom: {messfinal}})
 							wss.clients.forEach(function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages
@@ -307,6 +331,7 @@ wss.on('connection', function(ws, req) {
 								}
 							})
 						})
+
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
@@ -397,12 +422,13 @@ wss.on('connection', function(ws, req) {
 			}
 		}
 	})
-}).on('close', function(reasonCode, description) {
-	console.log((new Date()) + ' Peer  disconnected.');
-});
-
-app.get('/', (req, res) => {
-	res.sendFile(path.join(__dirname+'/public/index.html'))
+	wss.on('disconnect', function(reasonCode, description) {
+		console.log((new Date()) + ' Peer  disconnected.');
+	});
 })
+
+// app.get('/', (req, res) => {
+// 	res.sendFile(path.join(__dirname+'/public/index.html'))
+// })
 
 server.listen(process.env.PORT || 3000, () => console.log(`Lisening on port ${process.env.PORT}`))
