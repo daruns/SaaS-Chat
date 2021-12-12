@@ -1,6 +1,7 @@
 'use strict';
 const dotenv = require('dotenv');
 dotenv.config();
+const fs = require('fs')
 const app = require('express')()
 const server = (process.env === "production") ? require('https').createServer({cert: fs.readFileSync(process.env.SSL_PATH),key: fs.readFileSync(process.env.SSL_PATH)}) : require('http').createServer(app);
 const WebSocket = require('ws');
