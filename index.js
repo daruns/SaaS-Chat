@@ -348,7 +348,7 @@ wss.on('connection', function(ws, req) {
 								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert",e)})
 							}
 							const messfinal = await getMessageById(msg.id)
-							let resx = JSON.stringify({messagePerRoom: {messfinal}})
+							let resx = JSON.stringify({messagePerRoom: messfinal})
 							wss.clients.forEach(function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages
