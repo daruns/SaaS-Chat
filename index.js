@@ -73,6 +73,7 @@ const getRoomByUserId = async function(userId, brandCode) {
 			builder.select('messages.user_id');
 			builder.select('messages.room_id');
 			builder.select('messages.created_at');
+			builder.limit(1)
 		},
 		selectAttachmentParams(builder) {
 			builder.select('attachments.id');
@@ -109,7 +110,7 @@ const getRoomByUserId = async function(userId, brandCode) {
 
 const deliverAllUnreadMessages = async function(userId) {
 	return await MessageRecipient.query()
-	// .select('message_recipients.*')
+	.select('message_recipients.*')
 	.join('messages','message_recipients.message_id','messages.id')
 	.join('room_users','messages.room_id','room_users.room_id')
 	.where('message_recipients.status','not_delivered')
@@ -119,6 +120,16 @@ const deliverAllUnreadMessages = async function(userId) {
 	.update({'message_recipients.status':"delivered"})
 
 }
+
+const deliverAllUnreadMessagesPerRoom = async function(roomId) {
+	return await MessageRecipient.query()
+	.select('message_recipients.*')
+	.join('messages','message_recipients.message_id','messages.id')
+	.whereNot('message_recipients.status','seen')
+	.where('messages.room_id',roomId)
+	.update({'message_recipients.status':"seen"})
+}
+
 const getMessageById = async function(id) {
 	let message = Message.query()
 	.select('messages.id')
@@ -201,16 +212,21 @@ wss.on('connection', function(ws, req) {
 				ws.send(JSON.stringify({Error: "Unauthorized"}))
 				ws.close()
 			})
-			console.log(new Date(),"finished authentication")
-			ws.Context = currentUser.id
-			ws.send(JSON.stringify({messagesRecipients: await deliverAllUnreadMessages(currentUser.id)}))
+			console.log(new Date(),"finished authentication",currentUser)
+			
+			if (currentUser) {
+				ws.Context = currentUser.id
+				deliverAllUnreadMessages(currentUser.id).then(() => {})
 
-			ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
-			let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+				ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
+				let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
 
-			let resx = JSON.stringify({rooms: rooms})
-// send rooms to current client
-			ws.send(resx)
+				let resx = JSON.stringify({rooms: rooms})
+	// send rooms to current client
+				ws.send(resx)
+			} else {
+				ws.send(JSON.stringify({Error: "Unauthorized"}))
+			}
 		} else {
 			if (currentUser.id) {
 // recieve new room
@@ -338,12 +354,11 @@ wss.on('connection', function(ws, req) {
 					}
 // recieve user typing
 				} else if (parsedMessage.typing && parsedMessage.typing.room_id) {
-					console.log(typeof parsedMessage.typing.room_id)
 					Room.query().findById(parsedMessage.typing.room_id).withGraphFetched({users: true})
 					.then((room) => {
 						if (room) {
 							console.log("finished first part -----------------------",room)
-							if (room.users) if (roomUsers.includes(currentUser.id)) {
+							if (room.users && room.users.map(e => e.id).includes(currentUser.id)) {
 								let roomUsers = room.users.map(e => e.id)
 								console.log("finished second part -----------------------",roomUsers)
 								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
@@ -369,28 +384,18 @@ wss.on('connection', function(ws, req) {
 					})
 // recieve user status changing
 				} else if (parsedMessage.seenStatus && parsedMessage.seenStatus.room_id) {
-					Message.query().where({room_id: parsedMessage.seenStatus.room_id}).withGraphFetched({messageRecipients: {user: true}})
-
+					MessageRecipient.query().join('messages','message_recipients.message_id', 'messages.id').join('room_users','messages.room_id','room_users.room_id').where('messages.room_id',parsedMessage.seenStatus.room_id).where('room_users.user_id',currentUser.id).where('message_recipients.user_id',currentUser.id)
 					.then((room) => {
 						if (room) {
-							console.log("finished first part -----------------------",room)
-							if (room.users) if (roomUsers.includes(currentUser.id)) {
-								let roomUsers = room.users.map(e => e.id)
-								console.log("finished second part -----------------------",roomUsers)
-								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
-								console.log("finished fourth part -----------------------", roomUsers)
-								let resx = JSON.stringify({userTyping: {user_id: currentUser.id, room_id: room.id}})
-								wss.clients.forEach(function each(client) {
-									console.log("finished fifth part -----------------------",client.Context)
-									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
-									console.log("finished sixth part -----------------------",client._socket._handle.fd)
+							console.log("finished fourth part -----------------------", room)
+							deliverAllUnreadMessagesPerRoom(parsedMessage.seenStatus.room_id).then((delivered) => {console.log(delivered)})
+							let resx = JSON.stringify({seenFromRoom: {user_id:currentUser.id, room_id: parsedMessage.seenStatus.room_id, message_id: room.message_id}})
+							wss.clients.forEach(function each(client) {
+								if (room.user_id === client.Context && client !== ws && client.readyState === WebSocket.OPEN) {
 // broadcast typing
-										client.send(resx);
-									}
-								})
-							} else {
-								ws.send(JSON.stringify({Error: "RoomNotFound",explain: roomUsers}))
-							}
+									client.send(resx);
+								}
+							})
 						} else {
 							ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
 						}
@@ -423,9 +428,9 @@ wss.on('connection', function(ws, req) {
 			}
 		}
 	})
-	wss.on('disconnect', function(reasonCode, description) {
-		console.log((new Date()) + ' Peer  disconnected.');
-	});
+	// wss.on('disconnect', function(reasonCode, description) {
+	// 	console.log((new Date()) + ' Peer  disconnected.');
+	// });
 })
 
 // app.get('/', (req, res) => {
