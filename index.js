@@ -184,7 +184,7 @@ const getMessageById = async function(id) {
 		`
 	)
 	if (message) {
-		return message
+		return {msg: message}
 	} else {
 		return false
 	}
