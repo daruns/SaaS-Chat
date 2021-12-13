@@ -4,7 +4,7 @@ dotenv.config();
 const fs = require('fs')
 const app = require('express')()
 var server;
-if (process.env === "production") {
+if (process.env.NODE_ENV === "production") {
 
 	server = require('https').createServer({
 		cert: fs.readFileSync(process.env.SSL_PATH),
