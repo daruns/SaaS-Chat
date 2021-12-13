@@ -184,7 +184,7 @@ const getMessageById = async function(id) {
 		`
 	)
 	if (message) {
-		return {msg: message}
+		return message
 	} else {
 		return false
 	}
@@ -348,6 +348,11 @@ wss.on('connection', function(ws, req) {
 								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert",e)})
 							}
 							const messfinal = await getMessageById(msg.id)
+							messfinal["user"] = {}
+							messfinal["user"]['id'] = currentUser.id
+							messfinal['user']['name'] = currentUser.name
+							messfinal['user']['username'] = currentUser.username
+							messfinal['user']['avatar'] = currentUser.avatar
 							let resx = JSON.stringify({messagePerRoom: messfinal})
 							wss.clients.forEach(function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
