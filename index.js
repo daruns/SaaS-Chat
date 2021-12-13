@@ -3,11 +3,19 @@ const dotenv = require('dotenv');
 dotenv.config();
 const fs = require('fs')
 const app = require('express')()
-const server = (process.env === "production") ? require('https').createServer({cert: fs.readFileSync(process.env.SSL_PATH),key: fs.readFileSync(process.env.SSL_PATH)}) : require('http').createServer(app);
+var server;
+if (process.env === "production") {
+
+	server = require('https').createServer({
+		cert: fs.readFileSync(process.env.SSL_PATH),
+		key: fs.readFileSync(process.env.SSL_PATH)
+	});
+} else {
+	server = require('http').createServer()
+}
 const WebSocket = require('ws');
 const path = require('path');
 const {authenticate} = require("./middlewares/auth.middleware");
-
 const { ConnectedUser } = require('./models/connectedUser.model');
 const { Message } = require('./models/message.model');
 const { JoinedRoom } = require('./models/joinedRoom.model');
