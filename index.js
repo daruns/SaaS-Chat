@@ -341,11 +341,12 @@ wss.on('connection', function(ws, req) {
 							// let joindusers = await JoinedUser.query().where('room_id',msg.room_id).whereIn('user_id',resul)
 							for (let client of await wss.clients) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+									console.log("result client content-----: ")
 									msgRecipientsParams[Number(client.Context)] = "delivered"
 								}
 							}
 							for (let msrcparam of Object.keys(msgRecipientsParams)) {
-								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert",e)})
+								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert message recipient: ",e)})
 							}
 							const messfinal = await getMessageById(msg.id)
 							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}})
@@ -356,6 +357,7 @@ wss.on('connection', function(ws, req) {
 								}
 							})
 						})
+						.catch(e => console.log("msg insertion ----------res: ",e))
 
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
@@ -371,7 +373,7 @@ wss.on('connection', function(ws, req) {
 								console.log("finished second part -----------------------",roomUsers)
 								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
 								console.log("finished fourth part -----------------------", roomUsers)
-								let resx = JSON.stringify({userTyping: {user_id: currentUser.id, room_id: room.id}})
+								let resx = JSON.stringify({userTyping: {user_id: currentUser.id,avatar: currentUser.avatar, room_id: room.id}})
 								wss.clients.forEach(function each(client) {
 									console.log("finished fifth part -----------------------",client.Context)
 									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
