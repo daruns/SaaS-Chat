@@ -60,8 +60,8 @@ const areUsersExistInRoom = async function(userIds, roomId) {
 const findMessagesForRoom = async function(roomId) {
 	return await Message.query().where('room_id', roomId).limit(100)
 }
-const getRoomByUserId = async function(userId, brandCode) {
-	let rooms = await User.query().select().where('brand_code', brandCode).findById(userId)
+const getRoomByUserId = async function(userId) {
+	let rooms = await User.query().select().findById(userId)
 	.modifiers({
 		selectId(builder) {
 			builder.select('rooms.id');
@@ -69,6 +69,57 @@ const getRoomByUserId = async function(userId, brandCode) {
 			builder.select('rooms.creator_id');
 			builder.select('rooms.created_at');
 		},
+		selectUserId(builder) {
+			builder.select('users.id');
+			builder.select('users.username');
+			builder.select('users.name');
+			builder.select('users.avatar');
+		},
+		selectMessageParams(builder) {
+			builder.select('messages.id');
+			builder.select('messages.text');
+			builder.select('messages.user_id');
+			builder.select('messages.room_id');
+			builder.select('messages.created_at');
+			builder.orderBy('id','DESC')
+			builder.limit(1)
+		},
+		selectAttachmentParams(builder) {
+			builder.select('attachments.id');
+			builder.select('attachments.url');
+			builder.select('attachments.content_type');
+			builder.select('attachments.size');
+		},
+		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.created_at');
+			builder.select('message_recipients.id');
+			builder.select('message_recipients.status');
+			builder.select('message_recipients.user_id');
+		}
+	})
+	.withGraphFetched(
+		`
+		[
+			rooms(selectId).[
+				users(selectUserId),
+				messages(selectMessageParams).[
+					attachments(selectAttachmentParams),
+					user(selectUserId),
+					messageRecipients(selectMessageRecipientParams).[
+						user(selectUserId)
+					],
+				]
+			],
+		]
+		`
+	)
+	delete rooms.password ? delete rooms.password : false
+	return rooms
+}
+
+const getRoomById = async function(roomId) {
+	let rooms = await Room.query().select().findById(roomId)
+	.modifiers({
 		selectUserId(builder) {
 			builder.select('users.id');
 			builder.select('users.username');
@@ -99,16 +150,8 @@ const getRoomByUserId = async function(userId, brandCode) {
 	.withGraphFetched(
 		`
 		[
-			rooms(selectId).[
-				users(selectUserId),
-				messages(selectMessageParams).[
-					attachments(selectAttachmentParams),
-					user(selectUserId),
-					messageRecipients(selectMessageRecipientParams).[
-						user(selectUserId)
-					],
-				]
-			],
+			users(selectUserId),
+			messages(selectMessageParams)
 		]
 		`
 	)
@@ -190,6 +233,58 @@ const getMessageById = async function(id) {
 	}
 }
 
+
+const getMessagesByRoomId = async function(id) {
+	let message = Message.query()
+	.select('messages.id')
+	.select('messages.text')
+	.select('messages.user_id')
+	.select('messages.room_id')
+	.select('messages.created_at')
+	.where({room_id: id})
+	.modifiers({
+		selectUserId(builder) {
+			builder.select('users.id');
+			builder.select('users.username');
+			builder.select('users.name');
+			builder.select('users.avatar');
+		},
+		selectAttachmentParams(builder) {
+			builder.select('attachments.id');
+			builder.select('attachments.url');
+			builder.select('attachments.content_type');
+			builder.select('attachments.size');
+		},
+		selectMessageRecipientParams(builder) {
+			builder.select('message_recipients.created_at');
+			builder.select('message_recipients.id');
+			builder.select('message_recipients.status');
+			builder.select('message_recipients.user_id');
+		},
+		selectRoomParams(builder) {
+			builder.select('rooms.id');
+			builder.select('rooms.name');
+			builder.select('rooms.creator_id');
+			builder.select('rooms.created_at');
+
+		}
+	})
+	.withGraphFetched(
+		`
+		[
+			user(selectUserId),
+			messageRecipients(selectMessageRecipientParams).[user(selectUserId)],
+			attachments(selectAttachmentParams),
+			room(selectRoomParams).users(selectUserId),
+		]
+		`
+	)
+	if (message) {
+		return message
+	} else {
+		return false
+	}
+}
 ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
 JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
@@ -227,7 +322,7 @@ wss.on('connection', function(ws, req) {
 				deliverAllUnreadMessages(currentUser.id).then(() => {})
 
 				ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
-				let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+				let rooms = await getRoomByUserId(currentUser.id)
 
 				let resx = JSON.stringify({rooms: rooms})
 	// send rooms to current client
@@ -240,8 +335,19 @@ wss.on('connection', function(ws, req) {
 // recieve new room
 				if (parsedMessage.createRoom && parsedMessage.createRoom.users && parsedMessage.createRoom.users.length) {
 					let isContiune = false
-					let roomUsers = parsedMessage.createRoom.users.filter( i => {return i != currentUser.id} )
-					isContiune = (await areUsersExist(roomUsers, currentUser.brand_code))
+					let roomUsers = parsedMessage.createRoom.users.filter( i => {return i !== currentUser.id} )
+					console.log("roomUsers",roomUsers)
+					if (roomUsers.length === 1) {
+						let userInRoom = await RoomUser.query().findOne('user_id',roomUsers[0])
+						console.log("room with userssss",userInRoom)
+						isContiune = (!userInRoom) ? true : false
+						console.log("userInRoom", userInRoom)
+					}
+					console.log("isContiune",isContiune)
+					if (isContiune) {
+						isContiune = await areUsersExist(roomUsers, currentUser.brand_code)
+						console.log("areUsersExist",isContiune)
+					}
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
 						let roomUsersNames = (await User.query().select('name').findByIds(roomUsersId)).map(e => e.name).join(', ')
@@ -255,7 +361,7 @@ wss.on('connection', function(ws, req) {
 						for (let room of roomUsersWithMy) {
 							await insertedRoom.$relatedQuery('users').relate(room.user_id)
 						}
-						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+						let rooms = await getRoomByUserId(currentUser.id)
 						let resx = JSON.stringify({rooms: rooms})
 // broadcast new added room
 						wss.clients.forEach(function each(client) {
@@ -279,7 +385,7 @@ wss.on('connection', function(ws, req) {
 						for (let room of roomUsersId) {
 							await isRoomExist.$relatedQuery('users').relate(room.user_id)
 						}
-						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+						let rooms = await getRoomByUserId(currentUser.id)
 						let resx = JSON.stringify({rooms: rooms})
 // broadcast new added users to room
 						wss.clients.forEach(function each(client) {
@@ -301,7 +407,7 @@ wss.on('connection', function(ws, req) {
 						await isRoomExist.$relatedQuery('users')
 						.unrelate()
 						.whereIn('users.id', roomUsers)
-						let rooms = await getRoomByUserId(currentUser.id, currentUser.brand_code)
+						let rooms = await getRoomByUserId(currentUser.id)
 						let resx = JSON.stringify({rooms: rooms})
 // broadcast all rooms without deleted users from room
 						wss.clients.forEach(function each(client) {
@@ -319,14 +425,15 @@ wss.on('connection', function(ws, req) {
 						user_id: currentUser.id,
 						room_id: parsedMessage.createMessage.room_id,
 					}
-					let roomUsers = await RoomUser.query().select('user_id').where('room_id',messageParams.room_id)
+					let roomUsers = await RoomUser.query().where('room_id',messageParams.room_id)
 					let resul = roomUsers.map(e=> e.user_id)
 					let msgRecipientsParams = {}
 					for (let reks of resul) {
 						msgRecipientsParams[Number(reks)] = 'not_delivered'
 					}
 					if (resul.includes(currentUser.id)) {
-						Message.query().insert(messageParams).then(async (msg) => {
+						await Message.query().insert(messageParams)
+						.then(async (msg) => {
 							if (msg) {
 								if (parsedMessage.createMessage.files && typeof parsedMessage.createMessage.files === 'object') {
 									for (let fileId of parsedMessage.createMessage.files) {
@@ -340,16 +447,21 @@ wss.on('connection', function(ws, req) {
 							// let connusers = await ConnectedUser.query().whereIn('user_id',resul)
 							// let joindusers = await JoinedUser.query().where('room_id',msg.room_id).whereIn('user_id',resul)
 							for (let client of await wss.clients) {
-								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
-									console.log("result client content-----: ")
+								if (resul.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
 									msgRecipientsParams[Number(client.Context)] = "delivered"
 								}
 							}
 							for (let msrcparam of Object.keys(msgRecipientsParams)) {
-								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((e)=>{console.log("finished an insert message recipient: ",e)})
+								console.log('room users found without current user', msrcparam)
+								if (msrcparam != currentUser.id) {
+								console.log('room users found without alloweeeeeeeeeeeeeed', msrcparam)
+								let relatedMsgRecp = await msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] })
+								}
 							}
 							const messfinal = await getMessageById(msg.id)
 							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}})
+							// let msgsrooms = JSON.stringify(await getRoomById(messfinal.room_id))
+							// console.log("room ----------------: ", JSON.parse(msgsrooms) )
 							wss.clients.forEach(function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages
@@ -357,10 +469,20 @@ wss.on('connection', function(ws, req) {
 								}
 							})
 						})
-						.catch(e => console.log("msg insertion ----------res: ",e))
-
+						.catch(e => console.log("msg insertion /\\/\\/\\/\\/\\ errOR =-  res: ",e))
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
+					}
+// receive request messages by room id
+				} else if (parsedMessage.getMessagesByRoomId && parsedMessage.getMessagesByRoomId.room_id) {
+					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
+					const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
+					if (roomMessages && existMyUserInRoom) {
+						let resx = JSON.stringify({messagePerRoom: roomMessages})
+// broadcast messages
+						ws.send(resx);
+					} else {
+						ws.send(JSON.stringify({Error: "NotFount reason is not roomMessages && existMyUserInRoom"}))
 					}
 // recieve user typing
 				} else if (parsedMessage.typing && parsedMessage.typing.room_id) {
