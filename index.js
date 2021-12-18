@@ -342,12 +342,15 @@ wss.on('connection', function(ws, req) {
 						console.log("room with userssss",userInRoom)
 						isContiune = (!userInRoom) ? true : false
 						console.log("userInRoom", userInRoom)
+					} else {
+						isContiune = true
 					}
 					console.log("isContiune",isContiune)
 					if (isContiune) {
 						isContiune = await areUsersExist(roomUsers, currentUser.brand_code)
 						console.log("areUsersExist",isContiune)
 					}
+
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
 						let roomUsersNames = (await User.query().select('name').findByIds(roomUsersId)).map(e => e.name).join(', ')
@@ -479,7 +482,7 @@ wss.on('connection', function(ws, req) {
 					const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 					if (roomMessages && existMyUserInRoom) {
 						let resx = JSON.stringify({messagePerRoom: roomMessages})
-// broadcast messages
+// broadcast messages by room id
 						ws.send(resx);
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount reason is not roomMessages && existMyUserInRoom"}))
