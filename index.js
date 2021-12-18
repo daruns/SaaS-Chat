@@ -481,7 +481,7 @@ wss.on('connection', function(ws, req) {
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
 					const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 					if (roomMessages && existMyUserInRoom) {
-						let resx = JSON.stringify({messagePerRoom: roomMessages})
+						let resx = JSON.stringify({messagesByRoomId: roomMessages})
 // broadcast messages by room id
 						ws.send(resx);
 					} else {
