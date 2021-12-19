@@ -218,6 +218,12 @@ const deliverAllUnreadMessages = async function(userId) {
 }
 
 const deliverAllUnreadMessagesPerRoom = async function(roomId,userId) {
+	console.log("messages for seen ready: -------------  ",await MessageRecipient.query()
+	.select('message_recipients.*')
+	.join('messages','message_recipients.message_id','messages.id')
+	.whereNot('message_recipients.status','seen')
+	.where('messages.room_id',roomId)
+	.where('message_recipients.user_id',userId))
 	return await MessageRecipient.query()
 	.select('message_recipients.*')
 	.join('messages','message_recipients.message_id','messages.id')
@@ -492,6 +498,9 @@ wss.on('connection', function(ws, req) {
 							// let connusers = await ConnectedUser.query().whereIn('user_id',resul)
 							// let joindusers = await JoinedUser.query().where('room_id',msg.room_id).whereIn('user_id',resul)
 							for (let client of await wss.clients) {
+								if (client === ws) {
+									msgRecipientsParams[Number(client.Context)] = "seen"
+								}
 								if (resul.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
 									msgRecipientsParams[Number(client.Context)] = "delivered"
 								}
@@ -519,38 +528,35 @@ wss.on('connection', function(ws, req) {
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
 					const existUsersInRoom = await RoomUser.query().where({room_id: parsedMessage.getMessagesByRoomId.room_id})
 					if (existMyUserInRoom) {
-						MessageRecipient.query()
-						.join('messages','message_recipients.message_id', 'messages.id')
-						.join('room_users','messages.room_id','room_users.room_id')
-						.where('messages.room_id',parsedMessage.getMessagesByRoomId.room_id)
-						.where('room_users.user_id',currentUser.id)
-						.where('message_recipients.user_id',currentUser.id)
-						.then(async (room) => {
-							console.log("finished delivered -----------------------", parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
-							if (room.length) {
-								console.log("finished fourth part -----------------------", room)
-								deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
-								.then(async (delivered) => {
-								
-									console.log("finished delivered -----------------------", delivered)
-
-										const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
-										let resx = JSON.stringify({messagesByRoomId: roomMessages})
-										wss.clients.forEach(function each(client) {
-											if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+						// MessageRecipient.query()
+						// .join('messages','message_recipients.message_id', 'messages.id')
+						// .join('room_users','messages.room_id','room_users.room_id')
+						// .where('messages.room_id',parsedMessage.getMessagesByRoomId.room_id)
+						// .where('room_users.user_id',currentUser.id)
+						// .where('room_users.user_id',currentUser.id)
+						// .where('message_recipients.user_id',currentUser.id)
+						// .then(async (room) => {
+						// 	console.log("finished delivered -----------------------", parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
+						// 	if (room.length) {
+						deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
+						.then(async (delivered) => {
+						
+							console.log("finished delivered -----------------------", delivered)
+							const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
+							let resx = JSON.stringify({messagesByRoomId: roomMessages})
+							if (roomMessages.length) {
+								wss.clients.forEach(function each(client) {
+									if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages with seen recipients
-												client.send(resx);
-											}
-										})
+										client.send(resx);
+									}
 								})
 							} else {
-// broadcast empty messages
-								const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
-								let resx = JSON.stringify({messagesByRoomId: roomMessages})
-								ws.send(resx);
-								ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
+								ws.send(resx)
 							}
 						})
+						// 	}
+						// })
 //////////
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount reason is not existMyUserInRoom"}))
