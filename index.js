@@ -332,7 +332,7 @@ const getMessagesByRoomId = async function(id) {
 	}
 }
 ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
-JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
+// JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
 // MessageRecipient.query().delete().then(() => {console.log("deleted All Message!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
 // RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
@@ -537,7 +537,7 @@ wss.on('connection', function(ws, req) {
 						
 							console.log("finished delivered -----------------------", delivered)
 							const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
-							let resx = JSON.stringify({messagesByRoomId: roomMessages})
+							let resx = JSON.stringify({messagesByRoomId: {room_id: parsedMessage.getMessagesByRoomId.room_id , roomMessages } } )
 							if (roomMessages.length) {
 								wss.clients.forEach(function each(client) {
 									if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -571,7 +571,7 @@ wss.on('connection', function(ws, req) {
 									}
 								})
 							} else {
-								ws.send(JSON.stringify({Error: "RoomNotFound",explain: roomUsers}))
+								ws.send(JSON.stringify({Error: "RoomNotFound",explain: room.users}))
 							}
 						} else {
 							ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
@@ -598,15 +598,31 @@ wss.on('connection', function(ws, req) {
 					await deleteBySocketId(await ws.client._socket._handle.fd);
 // ping to keep alive
 				} else if (parsedMessage.ping) {
-					ConnectedUser.query().where({user_id: currentUser.id}).update({updated_at: new Date()})
-					.then((res) => {
-						ConnectedUser.query().where({brand_code: currentUser.brand_code}).whereRaw('DATE(updated_at) > SUBDATE(CURRENT_DATE, 1)')
-						.then((ress) => {
+					User.query()
+					.select('id')
+					.select('avatar')
+					.select('name')
+					.select('username')
+					.select('email')
+					.where({brand_code: currentUser.brand_code}).then((res) => {
+						let clients = []
+						for (let client of wss.clients) {
+							if (client.readyState === WebSocket.OPEN) {
+								clients.push(_.compact(res.filter(us => {return us.id === client.Context}))[0] )
+							}
+						}
+						clients = _.uniq(clients)
+						let resx = JSON.stringify({onlineUsers: clients})
+						ws.send(resx)
+					})
+					// ConnectedUser.query().where({user_id: currentUser.id}).update({updated_at: new Date()})
+					// .then((res) => {
+					// 	ConnectedUser.query().where({brand_code: currentUser.brand_code}).whereRaw('DATE(updated_at) >  DATE_SUB(NOW(), INTERVAL 5 SECOND)')
+					// 	.then((ress) => {
 
-						console.log(ress)
-						}).catch(e => {throw e})
-					}).catch(e => {throw e})
-									
+					// 	console.log(ress)
+					// 	}).catch(e => {throw e})
+					// }).catch(e => {throw e})									
 				} else {
 					ws.send(JSON.stringify({Error: "paramsMissing"}))
 				}
