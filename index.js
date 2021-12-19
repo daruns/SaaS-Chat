@@ -517,14 +517,14 @@ wss.on('connection', function(ws, req) {
 				} else if (parsedMessage.getMessagesByRoomId && parsedMessage.getMessagesByRoomId.room_id) {
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
 					if (existMyUserInRoom) {
-						///////////
 						MessageRecipient.query()
 						.join('messages','message_recipients.message_id', 'messages.id')
 						.join('room_users','messages.room_id','room_users.room_id')
 						.where('messages.room_id',parsedMessage.getMessagesByRoomId.room_id)
 						.where('room_users.user_id',currentUser.id)
 						.where('message_recipients.user_id',currentUser.id)
-						.then((room) => {
+						.then(async (room) => {
+							console.log("finished delivered -----------------------", parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
 							if (room.length) {
 								console.log("finished fourth part -----------------------", room)
 								deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id)
@@ -548,17 +548,15 @@ wss.on('connection', function(ws, req) {
 								})
 							} else {
 // broadcast empty messages
+								const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 								let resx = JSON.stringify({messagesByRoomId: roomMessages})
-								client.send(resx);
+								ws.send(resx);
 								ws.send(JSON.stringify({Error: "RoomNotFound",explain: room}))
 							}
 						})
-						.catch(e => {
-							ws.send(JSON.stringify({Error: "Catch RoomNotFound",explain: e}))
-						})
 //////////
 					} else {
-						ws.send(JSON.stringify({Error: "NotFount reason is not roomMessages && existMyUserInRoom"}))
+						ws.send(JSON.stringify({Error: "NotFount reason is not existMyUserInRoom"}))
 					}
 // recieve user typing
 				} else if (parsedMessage.typing && parsedMessage.typing.room_id) {
