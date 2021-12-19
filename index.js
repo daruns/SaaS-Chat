@@ -611,7 +611,7 @@ wss.on('connection', function(ws, req) {
 								clients.push(_.compact(res.filter(us => {return us.id === client.Context}))[0] )
 							}
 						}
-						clients = _.uniq(clients)
+						clients = _.uniq(_.compact(clients))
 						let resx = JSON.stringify({onlineUsers: clients})
 						for (let client of wss.clients) {
 							if (client.readyState === WebSocket.OPEN) {								
