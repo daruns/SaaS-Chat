@@ -516,8 +516,7 @@ wss.on('connection', function(ws, req) {
 // receive request messages by room id
 				} else if (parsedMessage.getMessagesByRoomId && parsedMessage.getMessagesByRoomId.room_id) {
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
-					const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
-					if (existMyUserInRoom && roomMessages) {
+					if (existMyUserInRoom) {
 						///////////
 						MessageRecipient.query()
 						.join('messages','message_recipients.message_id', 'messages.id')
@@ -555,7 +554,7 @@ wss.on('connection', function(ws, req) {
 							}
 						})
 						.catch(e => {
-							ws.send(JSON.stringify({Error: "RoomNotFound",explain: e}))
+							ws.send(JSON.stringify({Error: "Catch RoomNotFound",explain: e}))
 						})
 //////////
 					} else {
@@ -604,12 +603,13 @@ wss.on('connection', function(ws, req) {
 					await deleteBySocketId(await ws.client._socket._handle.fd);
 // ping to keep alive
 				} else if (parsedMessage.ping) {
-					ConnectedUser.query().findOne({user_id: currentUser.id}).whereRaw('DATE(updated_at) > SUBDATE(CURRENT_DATE, 1)')
-					.then((ress) => {
-						console.log(ress)
-					}).catch(e => {throw e})
 					ConnectedUser.query().where({user_id: currentUser.id}).update({updated_at: new Date()})
 					.then((res) => {
+						ConnectedUser.query().where({brand_code: currentUser.brand_code}).whereRaw('DATE(updated_at) > SUBDATE(CURRENT_DATE, 1)')
+						.then((ress) => {
+
+						console.log(ress)
+						}).catch(e => {throw e})
 					}).catch(e => {throw e})
 									
 				} else {
