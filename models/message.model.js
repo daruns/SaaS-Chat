@@ -14,6 +14,15 @@ class Message extends Model {
     return 'messages';
   }
 
+  static get modifiers() {
+    return {
+      // Note that this modifier takes an argument!
+      lastMessage(builder) {
+        builder.orderBy('id','DESC');
+        builder.limit(1)
+      }
+    };
+  }
   static get relationMappings() {
     // Importing models here is one way to avoid require loops.
     const {Room} = require('./room.model');

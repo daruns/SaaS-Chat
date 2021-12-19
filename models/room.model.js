@@ -39,6 +39,15 @@ class Room extends Model {
           to: 'messages.room_id'
         }
       },
+
+      lastMessage: {
+        relation: Model.HasOneRelation,
+        modelClass: Message,
+        join: {
+          from: 'rooms.id',
+          to: 'messages.room_id'
+        },
+      },
     };
   }
 }
