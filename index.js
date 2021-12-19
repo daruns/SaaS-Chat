@@ -613,7 +613,11 @@ wss.on('connection', function(ws, req) {
 						}
 						clients = _.uniq(clients)
 						let resx = JSON.stringify({onlineUsers: clients})
-						ws.send(resx)
+						for (let client of wss.clients) {
+							if (client.readyState === WebSocket.OPEN) {								
+								client.send(resx)
+							}
+						}
 					})
 					// ConnectedUser.query().where({user_id: currentUser.id}).update({updated_at: new Date()})
 					// .then((res) => {
