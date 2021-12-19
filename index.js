@@ -217,12 +217,13 @@ const deliverAllUnreadMessages = async function(userId) {
 
 }
 
-const deliverAllUnreadMessagesPerRoom = async function(roomId) {
+const deliverAllUnreadMessagesPerRoom = async function(roomId,userId) {
 	return await MessageRecipient.query()
 	.select('message_recipients.*')
 	.join('messages','message_recipients.message_id','messages.id')
 	.whereNot('message_recipients.status','seen')
 	.where('messages.room_id',roomId)
+	.where('messages.user_id',userId)
 	.update({'message_recipients.status':"seen"})
 }
 
@@ -280,7 +281,7 @@ const getMessageById = async function(id) {
 
 
 const getMessagesByRoomId = async function(id) {
-	let message = Message.query()
+	let message = await Message.query()
 	.select('messages.id')
 	.select('messages.text')
 	.select('messages.user_id')
@@ -516,6 +517,7 @@ wss.on('connection', function(ws, req) {
 // receive request messages by room id
 				} else if (parsedMessage.getMessagesByRoomId && parsedMessage.getMessagesByRoomId.room_id) {
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.getMessagesByRoomId.room_id})
+					const existUsersInRoom = await RoomUser.query().where({room_id: parsedMessage.getMessagesByRoomId.room_id})
 					if (existMyUserInRoom) {
 						MessageRecipient.query()
 						.join('messages','message_recipients.message_id', 'messages.id')
@@ -527,24 +529,19 @@ wss.on('connection', function(ws, req) {
 							console.log("finished delivered -----------------------", parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
 							if (room.length) {
 								console.log("finished fourth part -----------------------", room)
-								deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id)
+								deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
 								.then(async (delivered) => {
 								
-									if (delivered) {
+									console.log("finished delivered -----------------------", delivered)
 
-										console.log("finished delivered -----------------------", delivered)
 										const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 										let resx = JSON.stringify({messagesByRoomId: roomMessages})
 										wss.clients.forEach(function each(client) {
-											if (roomMessages.room.users.map(e=> e.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+											if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages with seen recipients
 												client.send(resx);
 											}
 										})
-
-									} else {
-										ws.send(JSON.stringify({Error: "Couldnt Deliver all messages as seen", explain: {delivered}}))
-									}
 								})
 							} else {
 // broadcast empty messages
