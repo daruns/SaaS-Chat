@@ -218,18 +218,12 @@ const deliverAllUnreadMessages = async function(userId) {
 }
 
 const deliverAllUnreadMessagesPerRoom = async function(roomId,userId) {
-	console.log("messages for seen ready: -------------  ",await MessageRecipient.query()
-	.select('message_recipients.*')
-	.join('messages','message_recipients.message_id','messages.id')
-	.whereNot('message_recipients.status','seen')
-	.where('messages.room_id',roomId)
-	.where('message_recipients.user_id',userId))
 	return await MessageRecipient.query()
 	.select('message_recipients.*')
 	.join('messages','message_recipients.message_id','messages.id')
 	.whereNot('message_recipients.status','seen')
 	.where('messages.room_id',roomId)
-	.where('messages.user_id',userId)
+	.where('message_recipients.user_id',userId)
 	.update({'message_recipients.status':"seen"})
 }
 
