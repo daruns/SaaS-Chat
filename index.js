@@ -332,10 +332,10 @@ const getMessagesByRoomId = async function(id) {
 }
 ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
 JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
-MessageRecipient.query().delete().then(() => {console.log("deleted All Message!!")})
-Message.query().delete().then(() => {console.log("deleted All Message!!")})
-RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
-Room.query().delete().then(() => {console.log("deleted All Room!!")})
+// MessageRecipient.query().delete().then(() => {console.log("deleted All Message!!")})
+// Message.query().delete().then(() => {console.log("deleted All Message!!")})
+// RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
+// Room.query().delete().then(() => {console.log("deleted All Room!!")})
 
 const wss = new WebSocket.Server({
 	server: server
