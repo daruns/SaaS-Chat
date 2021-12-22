@@ -24,7 +24,11 @@ const { RoomUser } = require('./models/roomUser.model');
 const { Room } = require('./models/room.model');
 const { User } = require('./models/user.model');
 const { MessageRecipient } = require('./models/messageRecipient.model');
-
+const Knex = require('knex');
+const config = require('./config/knexfile');
+const isProd = process.env.NODE_ENV === 'production';
+const connection = isProd ? config.production : config.development;
+const knex = Knex(connection);
 const createJoinedRoomService = function(socket_id, user_id, room_id) {
 	return JoinedRoom.query.insert({
 		socket_id: socket_id,
@@ -67,6 +71,8 @@ const getRoomByUserId = async function(userId) {
 		selectId(builder) {
 			builder.select('rooms.id');
 			builder.select('rooms.name');
+			builder.select('rooms.avatar');
+			builder.select('rooms.room_type');
 			builder.select('rooms.creator_id');
 			builder.select('rooms.created_at');
 		},
@@ -257,6 +263,8 @@ const getMessageById = async function(id) {
 		selectRoomParams(builder) {
 			builder.select('rooms.id');
 			builder.select('rooms.name');
+			builder.select('rooms.avatar');
+			builder.select('rooms.room_type');
 			builder.select('rooms.creator_id');
 			builder.select('rooms.created_at');
 
@@ -310,6 +318,8 @@ const getMessagesByRoomId = async function(id) {
 		selectRoomParams(builder) {
 			builder.select('rooms.id');
 			builder.select('rooms.name');
+			builder.select('rooms.avatar');
+			builder.select('rooms.room_type');
 			builder.select('rooms.creator_id');
 			builder.select('rooms.created_at');
 
@@ -331,7 +341,24 @@ const getMessagesByRoomId = async function(id) {
 		return false
 	}
 }
-ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
+
+const findDuplicateUsersInRooms = async function(users) {
+	return await knex.raw(`
+		select room_users.room_id,count(*) as countU
+		from room_users
+		where room_users.room_id in
+		(
+			select room_users.room_id
+			from room_users
+			where room_users.user_id in (${users.join(",")})
+			group by room_users.room_id
+		)
+		group by room_users.room_id
+		having countU = ${users.length}
+	;`)
+}
+
+// ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
 // JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
 // MessageRecipient.query().delete().then(() => {console.log("deleted All Message!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
@@ -368,36 +395,47 @@ wss.on('connection', function(ws, req) {
 				ws.Context = currentUser.id
 				deliverAllUnreadMessages(currentUser.id).then(() => {})
 
-				ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
+				// ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
 				let rooms = await getRoomByUserId(currentUser.id)
 
-				let resx = JSON.stringify({rooms: rooms})
+				let resx = JSON.stringify({rooms: rooms, reqType: 'firstLogin'})
 	// send rooms to current client
 				ws.send(resx)
 			} else {
 				ws.send(JSON.stringify({Error: "Unauthorized"}))
 			}
-		} else {
+		} else {``
 			if (currentUser.id) {
 // recieve new room
 				if (parsedMessage.createRoom && parsedMessage.createRoom.users && parsedMessage.createRoom.users.length) {
 					let isContiune = false
 					let roomUsers = _.uniq(parsedMessage.createRoom.users.concat(currentUser.id).map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0))
-					console.log("roomusers",roomUsers)
 					isContiune = await areUsersExist(roomUsers, currentUser.brand_code)
-
-					if (isContiune && (roomUsers.length === 1)) {
-						let userInRoom = await RoomUser.query().findOne('user_id',roomUsers[0])
-						console.log("length === 1",userInRoom)
-						isContiune = (!userInRoom) ? true : false
-					} else if (isContiune && (roomUsers.length === 2)) {
-						
+					const withoutCurrentUser = roomUsers.filter(e => {return e !== currentUser.id})
+					if (isContiune && withoutCurrentUser.length < 2) {
+						isContiune = false
+						let userNewInRoom = withoutCurrentUser.length === 0 ? [currentUser.id] : [withoutCurrentUser,currentUser.id]
+						const roomUserFnd = await findDuplicateUsersInRooms(userNewInRoom)
+						.catch(err => {
+							ws.send(JSON.stringify({Error: "SomethingWentWrong"}))
+						})
+						if (roomUserFnd && roomUserFnd.length && roomUserFnd[0]) {
+							const roomUserFnded = roomUserFnd[0]
+							if (roomUserFnded.length) {
+								const roomUserFndedRoomId = roomUserFnded[0].room_id
+								let resx = JSON.stringify({roomUserFoundedRoomId: {room_id: roomUserFndedRoomId }, reqType: 'createRoom'} )
+								ws.send(resx)
+							} else {
+								isContiune = true
+							}
+						}
 					}
 					console.log("isContiune",isContiune)
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
 						let roomParams = {
 							creator_id: currentUser.id,
+							avatar: parsedMessage.createRoom.avatar ? parsedMessage.createRoom.avatar : "",
 							name: parsedMessage.createRoom.name ? parsedMessage.createRoom.name : "",
 							brand_code: currentUser.brand_code,
 						}
@@ -406,7 +444,7 @@ wss.on('connection', function(ws, req) {
 							await insertedRoom.$relatedQuery('users').relate(room.user_id)
 						}
 						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms})
+						let resx = JSON.stringify({rooms: rooms, reqType: 'addRoom'})
 // broadcast new added room
 						wss.clients.forEach(function each(client) {
 							if (roomUsers.includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -416,29 +454,64 @@ wss.on('connection', function(ws, req) {
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
+// recieve edit room
+				} else if (parsedMessage.editRoom && parsedMessage.editRoom.id && (parsedMessage.editRoom.avatar || parsedMessage.editRoom.name) ) {
+					const amIRoomCreator = await Room.query().where('creator_id',currentUser.id).findById(parsedMessage.editRoom.id).withGraphFetched({users: true})
+					if (amIRoomCreator && amIRoomCreator.users) {
+						let roomUsersId = amIRoomCreator.users.map(e => e.id)
+						let roomParams = {
+							avatar: parsedMessage.editRoom.avatar ? parsedMessage.editRoom.avatar : "",
+							name: parsedMessage.editRoom.name ? parsedMessage.editRoom.name : ""
+						}
+						Room.query().where({creator_id: currentUser.id, id: parsedMessage.editRoom.id})
+						.update(roomParams)
+						.then(async res => {
+							if (res) {
+								let rooms = await getRoomByUserId(currentUser.id)
+								let resx = JSON.stringify({rooms: rooms, reqType: 'editRoom'})
+// broadcast edited room
+								wss.clients.forEach(function each(client) {
+									if (roomUsersId.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+										client.send(resx);
+									}
+								});
+							} else {
+								ws.send(JSON.stringify({Error: "Couldnt update the room"}))
+							}
+						})
+						.catch(err => {
+							ws.send(JSON.stringify({Error: "something went wrong Couldnt update the room"}))
+						})
+					} else {
+						ws.send(JSON.stringify({Error: "NotFount"}))
+					}
 //recieve new users for room
 				} else if (parsedMessage.addRoomUsers && parsedMessage.addRoomUsers.id && parsedMessage.addRoomUsers.users && parsedMessage.addRoomUsers.users.length) {
-					const roomUsers = parsedMessage.addRoomUsers.users.filter( i => {return i != currentUser.id} )
-					const isRoomExist = await Room.query().findById(parsedMessage.addRoomUsers.id)
-					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.addRoomUsers.id})
+					const roomUsers = _.uniq(parsedMessage.addRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter( i => {return i != currentUser.id} )
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
-					const areUsersExistInRoomById = (await areUsersExistInRoom(roomUsers, parsedMessage.addRoomUsers.id))
-
-					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
-						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
-						for (let room of roomUsersId) {
-							await isRoomExist.$relatedQuery('users').relate(room.user_id)
-						}
-						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms})
-// broadcast new added users to room
-						wss.clients.forEach(function each(client) {
-							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
-								client.send(resx);
+					if (areUsersExistInUsers) {
+						const isRoomExist = await Room.query().findById(parsedMessage.addRoomUsers.id)
+						.withGraphFetched({roomUsers: true})
+						const pureUsers = isRoomExist.roomUsers.filter(i => {return !roomUsers.includes(i)})
+						const areUsersExistInRoomById = (await areUsersExistInRoom(pureUsers, parsedMessage.addRoomUsers.id))
+						if (isRoomExist && isRoomExist.users && isRoomExist.users.length > 2 && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
+							let roomUsersId = pureUsers.map(id=> {return {user_id: id}})
+							for (let room of roomUsersId) {
+								await isRoomExist.$relatedQuery('users').relate(room.user_id)
 							}
-						});
+							let rooms = await getRoomByUserId(currentUser.id)
+							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
+// broadcast new added users to room
+							wss.clients.forEach(function each(client) {
+								if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+									client.send(resx);
+								}
+							});
+						} else {
+							ws.send(JSON.stringify({Error: "somethingWrong: isRoomExist && existMyUserInRoom && !areUsersExistInRoomById"}))
+						}
 					} else {
-						ws.send(JSON.stringify({Error: "somethingWrong: isRoomExist && existMyUserInRoom && !areUsersExistInUsers && !areUsersExistInRoomById"}))
+						ws.send(JSON.stringify({Error: "somethingWrong: !areUsersExistInUsers"}))
 					}
 //recieve delete users from room
 				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
@@ -452,7 +525,7 @@ wss.on('connection', function(ws, req) {
 						.unrelate()
 						.whereIn('users.id', roomUsers)
 						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms})
+						let resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
 // broadcast all rooms without deleted users from room
 						wss.clients.forEach(function each(client) {
 							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -503,7 +576,7 @@ wss.on('connection', function(ws, req) {
 								let relatedMsgRecp = await msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] })
 							}
 							const messfinal = await getMessageById(msg.id)
-							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}})
+							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}, reqType: 'createMessage'})
 							// let msgsrooms = JSON.stringify(await getRoomById(messfinal.room_id))
 							// console.log("room ----------------: ", JSON.parse(msgsrooms) )
 							wss.clients.forEach(function each(client) {
@@ -537,7 +610,7 @@ wss.on('connection', function(ws, req) {
 						
 							console.log("finished delivered -----------------------", delivered)
 							const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
-							let resx = JSON.stringify({messagesByRoomId: {room_id: parsedMessage.getMessagesByRoomId.room_id , roomMessages } } )
+							let resx = JSON.stringify({messagesByRoomId: {room_id: parsedMessage.getMessagesByRoomId.room_id , roomMessages }, reqType: 'getMessagesByRoomId' } )
 							if (roomMessages.length) {
 								wss.clients.forEach(function each(client) {
 									if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -563,7 +636,7 @@ wss.on('connection', function(ws, req) {
 							if (room.users && room.users.map(e => e.id).includes(currentUser.id)) {
 								let roomUsers = room.users.map(e => e.id)
 								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
-								let resx = JSON.stringify({userTyping: {user_id: currentUser.id,avatar: currentUser.avatar, room_id: room.id}})
+								let resx = JSON.stringify({userTyping: {user_id: currentUser.id,avatar: currentUser.avatar, room_id: room.id}, reqType: 'typing'})
 								wss.clients.forEach(function each(client) {
 									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
 // broadcast typing
@@ -586,7 +659,7 @@ wss.on('connection', function(ws, req) {
 					// Save Connection to Room
 					if (messages.length) {
 
-						let resx = JSON.stringify({messagesPerRoom: messages})
+						let resx = JSON.stringify({messagesPerRoom: messages, reqType: 'joinRoom'})
 						// Send last messages from Room to User
 						ws.send(resx);
 						createJoinedRoomService(ws._socket._handle.fd, currentUser.id, parsedMessage.joinRoom.room_id);
@@ -612,7 +685,7 @@ wss.on('connection', function(ws, req) {
 							}
 						}
 						clients = _.uniq(_.compact(clients))
-						let resx = JSON.stringify({onlineUsers: clients})
+						let resx = JSON.stringify({onlineUsers: clients, reqType: 'ping'})
 						for (let client of wss.clients) {
 							if (client.readyState === WebSocket.OPEN) {								
 								client.send(resx)
