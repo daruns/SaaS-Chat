@@ -409,10 +409,12 @@ wss.on('connection', function(ws, req) {
 // recieve new room
 				if (parsedMessage.createRoom && parsedMessage.createRoom.users && parsedMessage.createRoom.users.length) {
 					let isContiune = false
+					var roomType = false
 					let roomUsers = _.uniq(parsedMessage.createRoom.users.concat(currentUser.id).map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0))
 					isContiune = await areUsersExist(roomUsers, currentUser.brand_code)
 					const withoutCurrentUser = roomUsers.filter(e => {return e !== currentUser.id})
 					if (isContiune && withoutCurrentUser.length < 2) {
+						roomType = "chat"
 						isContiune = false
 						let userNewInRoom = withoutCurrentUser.length === 0 ? [currentUser.id] : [withoutCurrentUser,currentUser.id]
 						const roomUserFnd = await findDuplicateUsersInRooms(userNewInRoom)
@@ -434,6 +436,7 @@ wss.on('connection', function(ws, req) {
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
 						let roomParams = {
+							roomType: roomType ? roomType : "channel",
 							creator_id: currentUser.id,
 							avatar: parsedMessage.createRoom.avatar ? parsedMessage.createRoom.avatar : "",
 							name: parsedMessage.createRoom.name ? parsedMessage.createRoom.name : "",
