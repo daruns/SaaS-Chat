@@ -24,6 +24,7 @@ const { RoomUser } = require('./models/roomUser.model');
 const { Room } = require('./models/room.model');
 const { User } = require('./models/user.model');
 const { MessageRecipient } = require('./models/messageRecipient.model');
+const { RoomPendingAction } = require('./models/roomUsersPendingAction.model');
 const Knex = require('knex');
 const config = require('./config/knexfile');
 const isProd = process.env.NODE_ENV === 'production';
@@ -114,9 +115,14 @@ const getRoomByUserId = async function(userId) {
 		]
 		`
 	)
-	console.log("rooooooooooooomss",rooms)
 
 	for (let x = 0; x < rooms.rooms.length;x++) {
+		let roomPendingAction = await RoomPendingAction.query()
+		.where({
+			room_id: rooms.rooms[x].id,
+			stage: "pending",
+			action: "addUser"
+		})
 		let roomMessage = await Message.query()
 		.select('messages.id')
 		.select('messages.text')
@@ -161,10 +167,11 @@ const getRoomByUserId = async function(userId) {
 		)
 
 	// rooms.rooms = rooms.rooms.map(e => {e['messages'] = [e.lastMessage]; return e})
+	rooms.rooms[x].roomPendingAction = roomPendingAction ? [roomPendingAction] : []
 	rooms.rooms[x].messages = roomMessage ? [roomMessage] : []
-	console.log("roooooo--------omss",rooms.rooms[x].messages)
 	}
 	delete rooms.password ? delete rooms.password : false
+	console.log("rooms--------: ",rooms)
 	return rooms
 }
 
@@ -369,6 +376,7 @@ const findDuplicateUsersInRooms = async function(users,currentUId) {
 
 // ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
 // JoinedRoom.query().delete().then(() => {console.log("deleted All JoinedRoom!!")})
+// RoomPendingAction.query().delete().then(() => {console.log("deleted All RoomPendingAction!!")})
 // MessageRecipient.query().delete().then(() => {console.log("deleted All Message!!")})
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
 // RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
@@ -391,14 +399,13 @@ wss.on('connection', function(ws, req) {
 // authunticate user
 		if (parsedMessage.accessToken) {
 			authenticatedUs = parsedMessage.accessToken
-			console.log(new Date(),"started authentication")
 			currentUser = await authenticate(authenticatedUs)
 			.catch(err => {
 				console.log("Error from authenticate accessToken", err)
 				ws.send(JSON.stringify({Error: "Unauthorized"}))
 				ws.close()
 			})
-			console.log(new Date(),"finished authentication",currentUser)
+			console.log(new Date(),"authenticated: ",currentUser.id)
 			
 			if (currentUser) {
 				ws.Context = currentUser.id
@@ -430,13 +437,10 @@ wss.on('connection', function(ws, req) {
 						.catch(err => {
 							ws.send(JSON.stringify({Error: "SomethingWentWrong"}))
 						})
-						console.log(roomUserFnd)
 						if (roomUserFnd && roomUserFnd.length) {
-							const roomsUsers = _.map(_.groupBy(roomUserFnd,'room_id'), (ee,w) => {return {room_id: w,user_id: ee.map(wr => wr.user_id)}  })
-							console.log("roomUsers:    ",roomUsers, "newusersinroom: ", userNewInRoom)
-
-							const res = roomUsers.sort().every((value, index) => value === userNewInRoom.sort()[index]) ? true : false
-							console.log("group by:    ",res)
+							const roomsUsers = _.map(_.groupBy(roomUserFnd,'room_id'), (ee,w) => {return {room_id: parseInt(w),user_id: ee.map(wr => wr.user_id)}  })
+							console.log("roomUsers:    ",roomsUsers, "newusersinroom: ", userNewInRoom)
+							const res = roomsUsers.sort().every((value, index) => value === userNewInRoom.sort()[index]) ? true : false
 							if (res) {
 								let resx = JSON.stringify({roomUserFoundedRoomId: {room_id: res[0] }, reqType: 'createRoom'} )
 								console.log("resss ", resx)
@@ -517,7 +521,25 @@ wss.on('connection', function(ws, req) {
 						if (isRoomExist && isRoomExist.room_type && isRoomExist.room_type === 'channel' && isRoomExist.users && isRoomExist.users.length > 2 && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
 							let roomUsersId = pureUsers.map(id=> {return {user_id: id}})
 							for (let room of roomUsersId) {
-								await isRoomExist.$relatedQuery('users').relate(room.user_id)
+								if (isRoomExist.creator_id === currentUser.id) {
+									await isRoomExist.$relatedQuery('users').relate(room.user_id)
+									console.log("addeded user: ", isRoomExist,currentUser.id)
+								} else {
+									let pendingActionParams = {
+										user_id: room.user_id,
+										room_id: isRoomExist.id,
+										from_user_id: currentUser.id,
+										stage: 'pending',
+										action: "addUser",
+									}
+									const roomPendingAction = await RoomPendingAction.query().findOne(pendingActionParams)
+									if (!roomPendingAction) {
+										console.log("added pending: ", roomPendingAction)
+										await RoomPendingAction.query().insert(pendingActionParams)
+									} else {
+										console.log("add user already exist: ", roomPendingAction)
+									}
+								}
 							}
 							let rooms = await getRoomByUserId(currentUser.id)
 							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
@@ -532,6 +554,59 @@ wss.on('connection', function(ws, req) {
 						}
 					} else {
 						ws.send(JSON.stringify({Error: "somethingWrong: !areUsersExistInUsers"}))
+					}
+//recieve confirm pending users for room
+				} else if (parsedMessage.confirmPendingUser && parsedMessage.confirmPendingUser.room_id && parsedMessage.confirmPendingUser.user_id) {
+					const roomPendingAction = await RoomPendingAction.query().findOne({
+						room_id: parsedMessage.confirmPendingUser.room_id,
+						user_id: parsedMessage.confirmPendingUser.user_id,
+						action: 'addUser',
+						stage: 'pending'
+					})
+					const isRoomExist = await Room.query().findOne({room_type: 'channel',room_id: parsedMessage.confirmPendingUser.room_id, creator_id: currentUser.id})
+					if (roomPendingAction && isRoomExist && isRoomExist.creator_id === currentUser.id) {
+						await await RoomPendingAction.query().findById(roomPendingAction.id).update({
+							user_id: parsedMessage.confirmPendingUser.user_id,
+							room_id: isRoomExist.id ,
+							stage: "confirmed",
+						})
+						await isRoomExist.$relatedQuery('users').relate(parsedMessage.confirmPendingUser.user_id)
+						let rooms = await getRoomByUserId(currentUser.id)
+						let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
+// broadcast confirm pending users for room
+						wss.clients.forEach(function each(client) {
+							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								client.send(resx);
+							}
+						});
+					} else {
+						ws.send(JSON.stringify({Error: "somethingWrong: !roomPendingAction"}))
+					}
+//recieve decline pending users for room
+				} else if (parsedMessage.declinePendingUser && parsedMessage.declinePendingUser.room_id && parsedMessage.declinePendingUser.user_id) {
+					const roomPendingAction = await RoomPendingAction.query().findOne({
+						room_id: parsedMessage.declinePendingUser.room_id,
+						user_id: parsedMessage.declinePendingUser.user_id,
+						action: 'addUser',
+						stage: 'pending'
+					})
+					const isRoomExist = await Room.query().findOne({room_type: 'channel',room_id: parsedMessage.declinePendingUser.room_id, creator_id: currentUser.id})
+					if (roomPendingAction && isRoomExist && isRoomExist.creator_id === currentUser.id) {
+						await RoomPendingAction.query().findById(roomPendingAction.id).update({
+							user_id: parsedMessage.declinePendingUser.user_id,
+							room_id: isRoomExist.id ,
+							stage: "declined",
+						})
+						let rooms = await getRoomByUserId(currentUser.id)
+						let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
+// broadcast decline pending users for room
+						wss.clients.forEach(function each(client) {
+							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								client.send(resx);
+							}
+						});
+					} else {
+						ws.send(JSON.stringify({Error: "somethingWrong: !roomPendingAction"}))
 					}
 //recieve delete users from room
 				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
