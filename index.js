@@ -406,7 +406,7 @@ wss.on('connection', function(ws, req) {
 				ws.close()
 			})
 			console.log(new Date(),"authenticated: ",currentUser.id)
-			
+
 			if (currentUser) {
 				ws.Context = currentUser.id
 				deliverAllUnreadMessages(currentUser.id).then(() => {})
@@ -420,7 +420,7 @@ wss.on('connection', function(ws, req) {
 			} else {
 				ws.send(JSON.stringify({Error: "Unauthorized"}))
 			}
-		} else {``
+		} else {
 			if (currentUser.id) {
 // recieve new room
 				if (parsedMessage.createRoom && parsedMessage.createRoom.users && parsedMessage.createRoom.users.length) {
@@ -616,20 +616,26 @@ wss.on('connection', function(ws, req) {
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
 					const areAllUsersExistInRoomById = (await areAllUsersExistInRoom(roomUsers, parsedMessage.deleteRoomUsers.id))
 					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && areAllUsersExistInRoomById) {
-						await isRoomExist.$relatedQuery('users')
-						.unrelate()
-						.whereIn('users.id', roomUsers)
-						let rooms, resx;
-						if (isRoomExist.users && isRoomExist.users.length === 1) {
-							await isRoomExist.$query().delete()
-							rooms = await getRoomByUserId(currentUser.id)
-							resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
-							console.log("deleted room: ",resx)
+						if (isRoomExist.creator_id === currentUser.id) {
+							await isRoomExist.$relatedQuery('users')
+							.unrelate()
+							.whereIn('users.id', roomUsers)
 						} else {
-							rooms = await getRoomByUserId(currentUser.id)
-							resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
-							console.log("deleted room: ",resx)
+							if (roomUsers.length === 1 && roomUsers[0] === currentUser.id) {
+								await isRoomExist.$relatedQuery('users')
+								.unrelate()
+								.where('users.id', roomUsers)
+							} else {
+								ws.send(JSON.stringify({Error: "room is not blong to you"}))
+							}
 						}
+						if (roomUsers.length === 1 && isRoomExist.users.length === 1 && isRoomExist.users[0].id === currentUser.id) {
+							await isRoomExist.$query().delete()
+						}
+						let rooms, resx;
+						rooms = await getRoomByUserId(currentUser.id)
+						resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
+						console.log("deleted room: ",resx)
 // broadcast all rooms without deleted users from room
 						wss.clients.forEach(function each(client) {
 							if (isRoomExist.users.map(e => {e.id}).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -712,7 +718,7 @@ wss.on('connection', function(ws, req) {
 						// 	if (room.length) {
 						deliverAllUnreadMessagesPerRoom(parsedMessage.getMessagesByRoomId.room_id,currentUser.id)
 						.then(async (delivered) => {
-						
+
 							console.log("finished delivered -----------------------", delivered)
 							const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 							let resx = JSON.stringify({messagesByRoomId: {room_id: parsedMessage.getMessagesByRoomId.room_id , roomMessages }, reqType: 'getMessagesByRoomId' } )
@@ -784,15 +790,17 @@ wss.on('connection', function(ws, req) {
 					.select('email')
 					.where({brand_code: currentUser.brand_code}).then((res) => {
 						let clients = []
+						let resIds = res.map(e => parseInt(e.id))
+
 						for (let client of wss.clients) {
-							if (client.readyState === WebSocket.OPEN) {
-								clients.push(_.compact(res.filter(us => {return us.id === client.Context}))[0] )
+							if (client.readyState === WebSocket.OPEN && resIds.includes(parseInt(client.Context)) && !clients.find(e => {return e.id === client.Context}) ) {
+								clients.push(res.find(e => { return e.id === client.Context }) )
 							}
 						}
-						clients = _.uniq(_.compact(clients))
+						clients = clients.filter(function( element ) {return element !== undefined});
 						let resx = JSON.stringify({onlineUsers: clients, reqType: 'ping'})
 						for (let client of wss.clients) {
-							if (client.readyState === WebSocket.OPEN) {								
+							if (client.readyState === WebSocket.OPEN && resIds.includes(parseInt(client.Context)) ) {
 								client.send(resx)
 							}
 						}
@@ -804,7 +812,7 @@ wss.on('connection', function(ws, req) {
 
 					// 	console.log(ress)
 					// 	}).catch(e => {throw e})
-					// }).catch(e => {throw e})									
+					// }).catch(e => {throw e})
 				} else {
 					ws.send(JSON.stringify({Error: "paramsMissing"}))
 				}
