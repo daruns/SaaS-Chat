@@ -470,8 +470,10 @@ wss.on('connection', function(ws, req) {
 						let rooms = await getRoomByUserId(currentUser.id)
 						let resx = JSON.stringify({rooms: rooms, reqType: 'addRoom'})
 // broadcast new added room
+console.log(roomUsers)
 						wss.clients.forEach(function each(client) {
 							if (roomUsers.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								console.log(client.Context)
 								client.send(resx);
 							}
 						});
@@ -525,19 +527,21 @@ wss.on('connection', function(ws, req) {
 									await isRoomExist.$relatedQuery('users').relate(room.user_id)
 									console.log("addeded user: ", isRoomExist,currentUser.id)
 								} else {
-									let pendingActionParams = {
-										user_id: room.user_id,
-										room_id: isRoomExist.id,
-										from_user_id: currentUser.id,
-										stage: 'pending',
-										action: "addUser",
-									}
-									const roomPendingAction = await RoomPendingAction.query().findOne(pendingActionParams)
-									if (!roomPendingAction) {
-										console.log("added pending: ", roomPendingAction)
-										await RoomPendingAction.query().insert(pendingActionParams)
-									} else {
-										console.log("add user already exist: ", roomPendingAction)
+									if (room.user_id !== currentUser.id) {
+										let pendingActionParams = {
+											user_id: room.user_id,
+											room_id: isRoomExist.id,
+											from_user_id: currentUser.id,
+											stage: 'pending',
+											action: "addUser",
+										}
+										const roomPendingAction = await RoomPendingAction.query().findOne(pendingActionParams)
+										if (!roomPendingAction) {
+											console.log("added pending: ", roomPendingAction)
+											await RoomPendingAction.query().insert(pendingActionParams)
+										} else {
+											console.log("add user already exist: ", roomPendingAction)
+										}
 									}
 								}
 							}
@@ -610,25 +614,39 @@ wss.on('connection', function(ws, req) {
 					}
 //recieve delete users from room
 				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
-					const roomUsers = parsedMessage.deleteRoomUsers.users;
+					const roomUsers = _.uniq(parsedMessage.deleteRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter(function( element ) {return element !== undefined});
 					const isRoomExist = await Room.query().findById(parsedMessage.deleteRoomUsers.id).withGraphFetched({users: true})
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.deleteRoomUsers.id})
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
 					const areAllUsersExistInRoomById = (await areAllUsersExistInRoom(roomUsers, parsedMessage.deleteRoomUsers.id))
 					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && areAllUsersExistInRoomById) {
-						if (isRoomExist.creator_id === currentUser.id) {
-							await isRoomExist.$relatedQuery('users')
-							.unrelate()
-							.whereIn('users.id', roomUsers)
-						} else {
+						if (isRoomExist.room_type === "channel") {
+							if (isRoomExist.creator_id !== currentUser.id) {
+
+								if (roomUsers.length === 1 && roomUsers[0] === currentUser.id) {
+									await isRoomExist.$relatedQuery('users')
+									.unrelate()
+									.where('users.id', currentUser.id)
+								} else {
+									ws.send(JSON.stringify({Error: "room is not blong to you"}))
+								}
+							} else {
+								await isRoomExist.$relatedQuery('users')
+								.unrelate()
+								.whereIn('users.id', roomUsers)
+							}
+
+							
+						}
+
+						if (isRoomExist.room_type === "chat") {
 							if (roomUsers.length === 1 && roomUsers[0] === currentUser.id) {
 								await isRoomExist.$relatedQuery('users')
 								.unrelate()
-								.where('users.id', roomUsers)
-							} else {
-								ws.send(JSON.stringify({Error: "room is not blong to you"}))
+								.where('users.id', currentUser.id)
 							}
 						}
+
 						if (roomUsers.length === 1 && isRoomExist.users.length === 1 && isRoomExist.users[0].id === currentUser.id) {
 							await isRoomExist.$query().delete()
 						}
