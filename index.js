@@ -490,7 +490,7 @@ wss.on('connection', function(ws, req) {
 						}
 						console.log(roomUsers)
 						// broadcast new added room
-						wss.clients.forEach(function each(client) {
+						wss.clients.forEach(async function each(client) {
 							let rooms = await getRoomByUserId(currentUser.id)
 							let resx = JSON.stringify({rooms: rooms, reqType: 'addRoom'})
 							if (roomUsers.includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -515,7 +515,7 @@ wss.on('connection', function(ws, req) {
 						.then(async res => {
 							if (res) {
 								// broadcast edited room
-								wss.clients.forEach(function each(client) {
+								wss.clients.forEach(async function each(client) {
 									let rooms = await getRoomByUserId(client.Context)
 									let resx = JSON.stringify({rooms: rooms, reqType: 'editRoom'})
 									if (roomUsersId.includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -567,7 +567,7 @@ wss.on('connection', function(ws, req) {
 								}
 							}
 							// broadcast new added users to room
-							wss.clients.forEach(function each(client) {
+							wss.clients.forEach(async function each(client) {
 								let rooms = await getRoomByUserId(client.Context)
 								let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 								if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -597,7 +597,7 @@ wss.on('connection', function(ws, req) {
 						})
 						await isRoomExist.$relatedQuery('users').relate(parsedMessage.confirmPendingUser.user_id)
 						// broadcast confirm pending users for room
-						wss.clients.forEach(function each(client) {
+						wss.clients.forEach(async function each(client) {
 							let rooms = await getRoomByUserId(client.Context)
 							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -623,7 +623,7 @@ wss.on('connection', function(ws, req) {
 							stage: "declined",
 						})
 						// broadcast decline pending users for room
-						wss.clients.forEach(function each(client) {
+						wss.clients.forEach(async function each(client) {
 							let rooms = await getRoomByUserId(client.Context)
 							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
@@ -672,7 +672,7 @@ wss.on('connection', function(ws, req) {
 						}
 						let rooms, resx;
 						// broadcast all rooms without deleted users from room
-						wss.clients.forEach(function each(client) {
+						wss.clients.forEach(async function each(client) {
 							if (usersFromRoomOld.map(e => {return parseInt(e.id)} ).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								rooms = await getRoomByUserId(client.Context)
 								resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
@@ -727,7 +727,7 @@ wss.on('connection', function(ws, req) {
 							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}, reqType: 'createMessage'})
 							// let msgsrooms = JSON.stringify(await getRoomById(messfinal.room_id))
 							// console.log("room ----------------: ", JSON.parse(msgsrooms) )
-							wss.clients.forEach(function each(client) {
+							wss.clients.forEach(async function each(client) {
 								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages
 									client.send(resx);
@@ -761,7 +761,7 @@ wss.on('connection', function(ws, req) {
 							const roomMessages = await getMessagesByRoomId(parsedMessage.getMessagesByRoomId.room_id);
 							let resx = JSON.stringify({messagesByRoomId: {room_id: parsedMessage.getMessagesByRoomId.room_id , roomMessages }, reqType: 'getMessagesByRoomId' } )
 							if (roomMessages.length) {
-								wss.clients.forEach(function each(client) {
+								wss.clients.forEach(async function each(client) {
 									if (existUsersInRoom.map(e=> e.user_id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 // broadcast messages with seen recipients
 										client.send(resx);
@@ -786,7 +786,7 @@ wss.on('connection', function(ws, req) {
 								let roomUsers = room.users.map(e => e.id)
 								roomUsers = roomUsers.filter(i => { return i !== currentUser.id})
 								let resx = JSON.stringify({userTyping: {user_id: currentUser.id,avatar: currentUser.avatar, room_id: room.id}, reqType: 'typing'})
-								wss.clients.forEach(function each(client) {
+								wss.clients.forEach(async function each(client) {
 									if (roomUsers.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
 // broadcast typing
 										client.send(resx);
