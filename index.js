@@ -488,11 +488,11 @@ wss.on('connection', function(ws, req) {
 						for (let room of roomUsersId) {
 							await insertedRoom.$relatedQuery('users').relate(room.user_id)
 						}
-						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms, reqType: 'addRoom'})
-// broadcast new added room
-console.log(roomUsers)
+						console.log(roomUsers)
+						// broadcast new added room
 						wss.clients.forEach(function each(client) {
+							let rooms = await getRoomByUserId(currentUser.id)
+							let resx = JSON.stringify({rooms: rooms, reqType: 'addRoom'})
 							if (roomUsers.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								console.log(client.Context)
 								client.send(resx);
@@ -514,10 +514,10 @@ console.log(roomUsers)
 						.update(roomParams)
 						.then(async res => {
 							if (res) {
-								let rooms = await getRoomByUserId(currentUser.id)
-								let resx = JSON.stringify({rooms: rooms, reqType: 'editRoom'})
-// broadcast edited room
+								// broadcast edited room
 								wss.clients.forEach(function each(client) {
+									let rooms = await getRoomByUserId(client.Context)
+									let resx = JSON.stringify({rooms: rooms, reqType: 'editRoom'})
 									if (roomUsersId.includes(client.Context) && client.readyState === WebSocket.OPEN) {
 										client.send(resx);
 									}
@@ -566,10 +566,10 @@ console.log(roomUsers)
 									}
 								}
 							}
-							let rooms = await getRoomByUserId(currentUser.id)
-							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
-// broadcast new added users to room
+							// broadcast new added users to room
 							wss.clients.forEach(function each(client) {
+								let rooms = await getRoomByUserId(client.Context)
+								let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 								if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 									client.send(resx);
 								}
@@ -596,10 +596,10 @@ console.log(roomUsers)
 							stage: "confirmed",
 						})
 						await isRoomExist.$relatedQuery('users').relate(parsedMessage.confirmPendingUser.user_id)
-						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
-// broadcast confirm pending users for room
+						// broadcast confirm pending users for room
 						wss.clients.forEach(function each(client) {
+							let rooms = await getRoomByUserId(client.Context)
+							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								client.send(resx);
 							}
@@ -622,10 +622,10 @@ console.log(roomUsers)
 							room_id: isRoomExist.id ,
 							stage: "declined",
 						})
-						let rooms = await getRoomByUserId(currentUser.id)
-						let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
-// broadcast decline pending users for room
+						// broadcast decline pending users for room
 						wss.clients.forEach(function each(client) {
+							let rooms = await getRoomByUserId(client.Context)
+							let resx = JSON.stringify({rooms: rooms, reqType: 'addUserToRoom'})
 							if (roomUsers.concat(currentUser.id).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								client.send(resx);
 							}
@@ -657,8 +657,6 @@ console.log(roomUsers)
 								.unrelate()
 								.whereIn('users.id', roomUsers)
 							}
-
-							
 						}
 
 						if (isRoomExist.room_type === "chat") {
@@ -673,12 +671,12 @@ console.log(roomUsers)
 							await isRoomExist.$query().delete()
 						}
 						let rooms, resx;
-						rooms = await getRoomByUserId(currentUser.id)
-						resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
-						console.log("deleted room: ",resx)
-// broadcast all rooms without deleted users from room
+						// broadcast all rooms without deleted users from room
 						wss.clients.forEach(function each(client) {
 							if (usersFromRoomOld.map(e => {return parseInt(e.id)} ).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+								rooms = await getRoomByUserId(client.Context)
+								resx = JSON.stringify({rooms: rooms, reqType: 'deleteUserFromRoom'})
+								console.log("deleted room: ",resx)
 								client.send(resx);
 							}
 						});
