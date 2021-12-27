@@ -82,6 +82,8 @@ const getRoomByUserId = async function(userId) {
 			builder.select('users.username');
 			builder.select('users.name');
 			builder.select('users.avatar');
+			builder.select('users.phone_number');
+			builder.select('users.email');
 			builder.select('users.created_at');
 		},
 		selectMessageParams(builder) {
@@ -137,6 +139,8 @@ const getRoomByUserId = async function(userId) {
 				builder.select('users.username');
 				builder.select('users.name');
 				builder.select('users.avatar');
+				builder.select('users.email');
+				builder.select('users.phone_number');
 				builder.select('users.created_at');
 			},
 			selectAttachmentParams(builder) {
@@ -164,11 +168,16 @@ const getRoomByUserId = async function(userId) {
 				],
 			]
 			`
-		)
-
-	// rooms.rooms = rooms.rooms.map(e => {e['messages'] = [e.lastMessage]; return e})
-	rooms.rooms[x].roomPendingAction = roomPendingAction ? [roomPendingAction] : []
-	rooms.rooms[x].messages = roomMessage ? [roomMessage] : []
+		);
+		if (roomMessage) {
+			return await Object.keys(roomMessage.messageRecipients.find(qt => {return qt.user_id === userId } ))
+			.forEach(ef => {
+				roomMessage['msg_recepeint_' + ef] = roomMessage[ef]
+			})
+		}
+		// rooms.rooms = rooms.rooms.map(e => {e['messages'] = [e.lastMessage]; return e})
+		rooms.rooms[x].roomPendingAction = roomPendingAction ? [roomPendingAction] : []
+		rooms.rooms[x].messages = roomMessage ? [roomMessage] : []
 	}
 	delete rooms.password ? delete rooms.password : false
 	console.log("rooms--------: ",rooms)
@@ -183,6 +192,8 @@ const getRoomById = async function(roomId) {
 			builder.select('users.username');
 			builder.select('users.name');
 			builder.select('users.avatar');
+			builder.select('users.phone_number');
+			builder.select('users.email');
 		},
 		selectMessageParams(builder) {
 			builder.select('messages.id');
@@ -254,6 +265,8 @@ const getMessageById = async function(id) {
 			builder.select('users.username');
 			builder.select('users.name');
 			builder.select('users.avatar');
+			builder.select('users.email');
+			builder.select('users.phone_number');
 		},
 		selectAttachmentParams(builder) {
 			builder.select('attachments.id');
@@ -287,7 +300,11 @@ const getMessageById = async function(id) {
 		]
 		`
 	)
-	if (message) {
+	if (message && message.message_recipients) {
+		return await Object.keys(message.message_recipients.find(qt => {return qt.user_id === userId } ))
+		.forEach(ef => {
+			message['msg_recepeint_' + ef] = message[ef]
+		})
 		return message
 	} else {
 		return false
@@ -309,6 +326,8 @@ const getMessagesByRoomId = async function(id) {
 			builder.select('users.username');
 			builder.select('users.name');
 			builder.select('users.avatar');
+			builder.select('users.email');
+			builder.select('users.phone_number');
 		},
 		selectAttachmentParams(builder) {
 			builder.select('attachments.id');
@@ -806,6 +825,7 @@ console.log(roomUsers)
 					.select('name')
 					.select('username')
 					.select('email')
+					.select('phone_number')
 					.where({brand_code: currentUser.brand_code}).then((res) => {
 						let clients = []
 						let resIds = res.map(e => parseInt(e.id))
@@ -823,14 +843,6 @@ console.log(roomUsers)
 							}
 						}
 					})
-					// ConnectedUser.query().where({user_id: currentUser.id}).update({updated_at: new Date()})
-					// .then((res) => {
-					// 	ConnectedUser.query().where({brand_code: currentUser.brand_code}).whereRaw('DATE(updated_at) >  DATE_SUB(NOW(), INTERVAL 5 SECOND)')
-					// 	.then((ress) => {
-
-					// 	console.log(ress)
-					// 	}).catch(e => {throw e})
-					// }).catch(e => {throw e})
 				} else {
 					ws.send(JSON.stringify({Error: "paramsMissing"}))
 				}
@@ -840,9 +852,6 @@ console.log(roomUsers)
 			}
 		}
 	})
-	// wss.on('disconnect', function(reasonCode, description) {
-	// 	console.log((new Date()) + ' Peer  disconnected.');
-	// });
 })
 
 // app.get('/', (req, res) => {
