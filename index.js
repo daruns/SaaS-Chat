@@ -641,7 +641,7 @@ wss.on('connection', function(ws, req) {
 //recieve delete users from room
 				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
 					const roomUsers = _.uniq(parsedMessage.deleteRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter(function( element ) {return element !== undefined});
-					const isRoomExist = await Room.query().findById(parsedMessage.deleteRoomUsers.id).withGraphFetched({users: true})
+					const isRoomExist = await Room.query().findById(parsedMessage.deleteRoomUsers.id).withGraphFetched({users: true,messages: true})
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.deleteRoomUsers.id})
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
 					const areAllUsersExistInRoomById = (await areAllUsersExistInRoom(roomUsers, parsedMessage.deleteRoomUsers.id))
@@ -666,6 +666,9 @@ wss.on('connection', function(ws, req) {
 
 						if (isRoomExist.room_type === "chat") {
 							if (roomUsers.length === 1 && roomUsers[0] === currentUser.id) {
+                if (isRoomExist.messages && isRoomExist.messages.length === 0) {
+                  await isRoomExist.$query().delete()
+                }
 								await isRoomExist.$relatedQuery('users')
 								.unrelate()
 								.where('users.id', currentUser.id)
@@ -739,7 +742,7 @@ wss.on('connection', function(ws, req) {
 								}
 							})
 						})
-						.catch(e => console.log("msg insertion /\\/\\/\\/\\/\\ errOR =-  res: ",e))
+						.catch(e => console.log("msg insertion errOR =-  res: ",e))
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
