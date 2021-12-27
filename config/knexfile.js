@@ -7,6 +7,7 @@ module.exports = {
       database: process.env.DB_NAME,
       user: process.env.DB_USER,
       password: process.env.DB_PASS,
+      connectTimeout: 50000,
       charset: 'utf8',
     },
     migrations: {
@@ -24,6 +25,7 @@ module.exports = {
       database: process.env.DB_NAME,
       user: process.env.DB_USER,
       password: process.env.DB_PASS,
+      connectTimeout: 10000,
       charset: 'utf8',
     },
     pool: {

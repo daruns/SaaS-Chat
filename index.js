@@ -170,10 +170,13 @@ const getRoomByUserId = async function(userId) {
 			`
 		);
 		if (roomMessage && roomMessage.messageRecipients) {
-			await Object.keys(roomMessage.messageRecipients.find(qt => {return qt.user_id === userId } ))
-			.forEach(ef => {
-				roomMessage['msg_recepeint_' + ef] = roomMessage[ef]
-			})
+      let foundNd = roomMessage.messageRecipients.find(qt => {return qt.user_id === userId } )
+			if (foundNd) {
+        await Object.keys(foundNd)
+        .forEach(ef => {
+          roomMessage['msg_recepeint_' + ef] = roomMessage[ef]
+        })
+      }
 		}
 		// rooms.rooms = rooms.rooms.map(e => {e['messages'] = [e.lastMessage]; return e})
 		rooms.rooms[x].roomPendingAction = roomPendingAction ? [roomPendingAction] : []
@@ -304,10 +307,8 @@ const getMessageById = async function(id) {
 		.forEach(ef => {
 			message['msg_recepeint_' + ef] = message[ef]
 		})
-		return message
-	} else {
-		return false
 	}
+  return message
 }
 
 
@@ -375,7 +376,10 @@ const findDuplicateUsersInRooms = async function(users,currentUId) {
 	(
 		select room_users.room_id
 		from room_users
-		where room_users.room_id in
+    join rooms on (rooms.id = room_users.room_id)
+		where
+    rooms.room_type = "chat"
+    and room_users.room_id in
 		(
 			select room_users.room_id
 			from room_users
@@ -389,7 +393,7 @@ const findDuplicateUsersInRooms = async function(users,currentUId) {
 		having COUNT(room_users.user_id) = ${users.length}
 	)
 
-	;`))[0]
+	;`).catch(err => {console.log("findDuplicateUsersInRooms - Something went wrong in knex raw exec: ", err)}))
 }
 
 // ConnectedUser.query().delete().then(() => {console.log("deleted All ConnectedUser!!")})
@@ -410,9 +414,10 @@ function s4() {
 
 wss.on('connection', function(ws, req) {
 	var authenticatedUs
+  const socketId = ws._socket._handle.fd
 	var currentUser = {}
 
-	console.log("client socket id: ", ws._socket._handle.fd);
+	console.log("client socket id: ", socketId);
 	ws.on('message', async function(message) {
 		const parsedMessage = JSON.parse(message)
 // authunticate user
@@ -452,25 +457,26 @@ wss.on('connection', function(ws, req) {
 						roomType = "chat"
 						isContiune = false
 						let userNewInRoom = withoutCurrentUser.length === 0 ? [currentUser.id] : withoutCurrentUser.concat(currentUser.id)
-						const roomUserFnd = await findDuplicateUsersInRooms(userNewInRoom, currentUser.id)
+						const roomUserFndadw = await findDuplicateUsersInRooms(userNewInRoom, currentUser.id)
+            const roomUserFnd = roomUserFndadw.length ? roomUserFndadw[0] : []
 						.catch(err => {
-							ws.send(JSON.stringify({Error: "SomethingWentWrong"}))
+							ws.send(JSON.stringify({Error: "SomethingWentWrong",err}))
 						})
-						if (roomUserFnd && roomUserFnd.length) {
-							const roomsUsers = _.map(_.groupBy(roomUserFnd,'room_id'), (ee,w) => {return {room_id: parseInt(w),user_id: ee.map(wr => wr.user_id)}  })
-							console.log("roomUsers:    ",roomsUsers, "newusersinroom: ", userNewInRoom)
-							const res = roomsUsers.sort().every((value, index) => value === userNewInRoom.sort()[index]) ? true : false
-							if (res) {
-								let resx = JSON.stringify({roomUserFoundedRoomId: {room_id: res[0] }, reqType: 'createRoom'} )
+            console.log("newusersinroom: ", userNewInRoom)
+							console.log("roomUserFnd:    ",roomUserFnd)
+              if (roomUserFnd && roomUserFnd.length) {
+							const roomsUsers = _.map(_.groupBy(roomUserFnd,'room_id'), (ee,w) => {return {room_id: parseInt(w),user_id: ee.map(wr => wr.user_id)}  })[0]
+							console.log("roomUsers:    ",roomsUsers)
+							if ((roomsUsers && roomsUsers.user_id && roomsUsers.user_id.sort().every((value, index) => value === userNewInRoom.sort()[index]) ) ) {
+								let resx = JSON.stringify({roomUserFoundedRoomId: {room_id: roomsUsers }, reqType: 'createRoom'} )
 								console.log("resss ", resx)
 								ws.send(resx)
 							} else {
 								console.log('else - res[0]: \n')
-								isContiune = true
+                isContiune = true
 							}
 						} else {
 							console.log('roomUserFnd && roomUserFnd.length: \n', roomUserFnd)
-							isContiune = true
 						}
 					}
 					console.log("isContiune",isContiune)
@@ -695,9 +701,9 @@ wss.on('connection', function(ws, req) {
 					for (let reks of resul) {
 						msgRecipientsParams[Number(reks)] = 'not_delivered'
 					}
-					console.log("resul,currentUser.id",resul,currentUser.id)
+					console.log("resul,currentUser.id",resul,currentUser.id,resul.includes(currentUser.id))
 					if (resul.includes(currentUser.id)) {
-						await Message.query().insert(messageParams)
+						Message.query().insert(messageParams)
 						.then(async (msg) => {
 							if (msg) {
 								if (parsedMessage.createMessage.files && typeof parsedMessage.createMessage.files === 'object') {
@@ -709,25 +715,25 @@ wss.on('connection', function(ws, req) {
 									}
 								}
 							}
-							// let connusers = await ConnectedUser.query().whereIn('user_id',resul)
-							// let joindusers = await JoinedUser.query().where('room_id',msg.room_id).whereIn('user_id',resul)
-							for (let client of await wss.clients) {
+              console.log("msg: ",msg)
+							await wss.clients.forEach(async client => {
 								if (client === ws) {
 									msgRecipientsParams[Number(client.Context)] = "seen"
-								}
+                }
 								if (resul.includes(client.Context) && client !== ws && client.readyState === WebSocket.OPEN) {
 									msgRecipientsParams[Number(client.Context)] = "delivered"
 								}
-							}
-							for (let msrcparam of Object.keys(msgRecipientsParams)) {
-								let relatedMsgRecp = await msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] })
-							}
+							})
+							await Object.keys(msgRecipientsParams).forEach(async msrcparam => {
+								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((resss) => {console.log("messageRecipients: ",resss)})
+							})
 							const messfinal = await getMessageById(msg.id)
+              console.log(messfinal)
 							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}, reqType: 'createMessage'})
-							// let msgsrooms = JSON.stringify(await getRoomById(messfinal.room_id))
-							// console.log("room ----------------: ", JSON.parse(msgsrooms) )
-							wss.clients.forEach(async function each(client) {
-								if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+							await wss.clients.forEach(async function (client) {
+                console.log("resul && client.Context ",client.Context)
+                if (resul.includes(client.Context) && client.readyState === WebSocket.OPEN) {
+                  console.log("resul.includes(client.Context): ",resul.includes(client.Context))
 // broadcast messages
 									client.send(resx);
 								}
@@ -810,7 +816,7 @@ wss.on('connection', function(ws, req) {
 						let resx = JSON.stringify({messagesPerRoom: messages, reqType: 'joinRoom'})
 						// Send last messages from Room to User
 						ws.send(resx);
-						createJoinedRoomService(ws._socket._handle.fd, currentUser.id, parsedMessage.joinRoom.room_id);
+						createJoinedRoomService(socketId, currentUser.id, parsedMessage.joinRoom.room_id);
 					} else {
 						ws.send(JSON.stringify({Error: "NotFount"}))
 					}
