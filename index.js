@@ -641,6 +641,7 @@ console.log(roomUsers)
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
 					const areAllUsersExistInRoomById = (await areAllUsersExistInRoom(roomUsers, parsedMessage.deleteRoomUsers.id))
 					if (isRoomExist && existMyUserInRoom && areUsersExistInUsers && areAllUsersExistInRoomById) {
+						let usersFromRoomOld = isRoomExist.users
 						if (isRoomExist.room_type === "channel") {
 							if (isRoomExist.creator_id !== currentUser.id) {
 
@@ -677,7 +678,7 @@ console.log(roomUsers)
 						console.log("deleted room: ",resx)
 // broadcast all rooms without deleted users from room
 						wss.clients.forEach(function each(client) {
-							if (isRoomExist.users.map(e => {e.id}).includes(client.Context) && client.readyState === WebSocket.OPEN) {
+							if (usersFromRoomOld.map(e => {return parseInt(e.id)} ).includes(client.Context) && client.readyState === WebSocket.OPEN) {
 								client.send(resx);
 							}
 						});
