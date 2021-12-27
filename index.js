@@ -400,6 +400,7 @@ const findDuplicateUsersInRooms = async function(users,currentUId) {
 // Message.query().delete().then(() => {console.log("deleted All Message!!")})
 // RoomUser.query().delete().then(() => {console.log("deleted All RoomUser!!")})
 // Room.query().delete().then(() => {console.log("deleted All Room!!")})
+// RoomPendingAction.query().delete().then(() => {console.log("deleted All pending actions!!")})
 
 const wss = new WebSocket.Server({
 	server: server
@@ -466,6 +467,7 @@ wss.on('connection', function(ws, req) {
 								ws.send(resx)
 							} else {
 								console.log('else - res[0]: \n')
+								isContiune = true
 							}
 						} else {
 							console.log('roomUserFnd && roomUserFnd.length: \n', roomUserFnd)
