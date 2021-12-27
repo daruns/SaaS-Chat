@@ -169,8 +169,8 @@ const getRoomByUserId = async function(userId) {
 			]
 			`
 		);
-		if (roomMessage) {
-			return await Object.keys(roomMessage.messageRecipients.find(qt => {return qt.user_id === userId } ))
+		if (roomMessage && roomMessage.messageRecipients) {
+			await Object.keys(roomMessage.messageRecipients.find(qt => {return qt.user_id === userId } ))
 			.forEach(ef => {
 				roomMessage['msg_recepeint_' + ef] = roomMessage[ef]
 			})
@@ -180,7 +180,6 @@ const getRoomByUserId = async function(userId) {
 		rooms.rooms[x].messages = roomMessage ? [roomMessage] : []
 	}
 	delete rooms.password ? delete rooms.password : false
-	console.log("rooms--------: ",rooms)
 	return rooms
 }
 
@@ -301,7 +300,7 @@ const getMessageById = async function(id) {
 		`
 	)
 	if (message && message.message_recipients) {
-		return await Object.keys(message.message_recipients.find(qt => {return qt.user_id === userId } ))
+		await Object.keys(message.message_recipients.find(qt => {return qt.user_id === userId } ))
 		.forEach(ef => {
 			message['msg_recepeint_' + ef] = message[ef]
 		})
@@ -423,16 +422,16 @@ wss.on('connection', function(ws, req) {
 			.catch(err => {
 				console.log("Error from authenticate accessToken", err)
 				ws.send(JSON.stringify({Error: "Unauthorized"}))
-				ws.close()
+        ws.close()
 			})
-			console.log(new Date(),"authenticated: ",currentUser.id)
+			console.log(new Date(),"authenticated: ", currentUser.id)
 
 			if (currentUser) {
 				ws.Context = currentUser.id
-				deliverAllUnreadMessages(currentUser.id).then(() => {})
-
-				// ConnectedUser.query().insert({brand_code: currentUser.brand_code, socket_id: await ws._socket._handle.fd, user_id: currentUser.id}).then(() => {})
+				// deliverAllUnreadMessages(currentUser.id).then(() => {}).catch(e => console.log("Something went wrong while delivering all messages: ",e))
 				let rooms = await getRoomByUserId(currentUser.id)
+				.catch(erwr => console.log("something went wrong while fetching rooms: ", erwr))
+				console.log(new Date(),"fetched database: ",rooms.rooms ? rooms.rooms.length : rooms)
 
 				let resx = JSON.stringify({rooms: rooms, reqType: 'firstLogin'})
 	// send rooms to current client
