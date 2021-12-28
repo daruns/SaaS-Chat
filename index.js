@@ -15,6 +15,8 @@ if (process.env.NODE_ENV === "production") {
 	server = require('http').createServer()
 }
 const WebSocket = require('ws');
+const WebSocketServer = require('ws').Server;
+
 const path = require('path');
 const {authenticate} = require("./middlewares/auth.middleware");
 const { ConnectedUser } = require('./models/connectedUser.model');
@@ -370,29 +372,25 @@ const getMessagesByRoomId = async function(id) {
 
 const findDuplicateUsersInRooms = async function(users,currentUId) {
 	return (await knex.raw(`
-	select room_users.room_id, room_users.user_id
-	from room_users
-	where room_users.room_id in
-	(
-		select room_users.room_id
-		from room_users
-    join rooms on (rooms.id = room_users.room_id)
-		where
-    rooms.room_type = "chat"
-    and room_users.room_id in
-		(
-			select room_users.room_id
-			from room_users
-			where room_users.user_id = ${currentUId}
-			/*(${users.join(",")}) */
-			group by room_users.room_id
-			having COUNT(room_users.user_id) < ${users.length + 1}
-		)
-		and room_users.user_id in (${users.join(",")})
-		group by room_users.room_id
-		having COUNT(room_users.user_id) = ${users.length}
-	)
-
+  select a.room_id, a.user_id
+  from room_users a
+  where a.room_id in
+  (
+      select b.room_id
+      from room_users b
+      where b.room_id in
+      (
+          select c.room_id
+          from room_users c
+          join rooms d on (d.id = c.room_id)
+          where d.room_type = "chat"
+          and c.user_id = ${currentUId}
+          group by c.room_id
+      )
+      and b.user_id in (${users.join(",")})
+      group by b.room_id
+      having COUNT(b.user_id) = ${users.length}
+  )
 	;`).catch(err => {console.log("findDuplicateUsersInRooms - Something went wrong in knex raw exec: ", err)}))
 }
 
@@ -405,20 +403,28 @@ const findDuplicateUsersInRooms = async function(users,currentUId) {
 // Room.query().delete().then(() => {console.log("deleted All Room!!")})
 // RoomPendingAction.query().delete().then(() => {console.log("deleted All pending actions!!")})
 
-const wss = new WebSocket.Server({
+const wss = new WebSocketServer({
 	server: server
 });
+
+function heartbeat() {
+  this.isAlive = true;
+}
+
 function s4() {
 	return Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
 }
 
 wss.on('connection', function(ws, req) {
+  ws.isAlive = true;
+  ws.on('pong', heartbeat);
 	var authenticatedUs
   const socketId = ws._socket._handle.fd
 	var currentUser = {}
 
 	console.log("client socket id: ", socketId);
 	ws.on('message', async function(message) {
+    console.log('received: %s', message);
 		const parsedMessage = JSON.parse(message)
 // authunticate user
 		if (parsedMessage.accessToken) {
@@ -463,8 +469,8 @@ wss.on('connection', function(ws, req) {
 							ws.send(JSON.stringify({Error: "SomethingWentWrong",err}))
 						})
             console.log("newusersinroom: ", userNewInRoom)
-							console.log("roomUserFnd:    ",roomUserFnd)
-              if (roomUserFnd && roomUserFnd.length) {
+            console.log("roomUserFnd:    ",roomUserFnd)
+            if (roomUserFnd && roomUserFnd.length) {
 							const roomsUsers = _.map(_.groupBy(roomUserFnd,'room_id'), (ee,w) => {return {room_id: parseInt(w),user_id: ee.map(wr => wr.user_id)}  })[0]
 							console.log("roomUsers:    ",roomsUsers)
 							if ((roomsUsers && roomsUsers.user_id && roomsUsers.user_id.sort().every((value, index) => value === userNewInRoom.sort()[index]) ) ) {
@@ -476,9 +482,12 @@ wss.on('connection', function(ws, req) {
                 isContiune = true
 							}
 						} else {
+              isContiune = true
 							console.log('roomUserFnd && roomUserFnd.length: \n', roomUserFnd)
 						}
-					}
+					} else {
+            roomType = "channel"
+          }
 					console.log("isContiune",isContiune)
 					if (isContiune) {
 						let roomUsersId = roomUsers.map(id=> {return {user_id: id}})
@@ -546,7 +555,7 @@ wss.on('connection', function(ws, req) {
 						.withGraphFetched({roomUsers: true})
 						const pureUsers = isRoomExist.roomUsers.filter(i => {return !roomUsers.includes(i)})
 						const areUsersExistInRoomById = (await areUsersExistInRoom(pureUsers, parsedMessage.addRoomUsers.id))
-						if (isRoomExist && isRoomExist.room_type && isRoomExist.room_type === 'channel' && isRoomExist.users && isRoomExist.users.length > 2 && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
+						if (isRoomExist && isRoomExist.room_type && isRoomExist.room_type === 'channel' && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
 							let roomUsersId = pureUsers.map(id=> {return {user_id: id}})
 							for (let room of roomUsersId) {
 								if (isRoomExist.creator_id === currentUser.id) {
@@ -862,6 +871,20 @@ wss.on('connection', function(ws, req) {
 		}
 	})
 })
+
+const interval = setInterval(function ping() {
+  wss.clients.forEach(function each(ws) {
+    if (ws.isAlive === false) return ws.terminate();
+    const socketId = ws._socket._handle.fd
+    ws.isAlive = false;
+    console.log("socketInterval: ", ws.Context, socketId)
+    ws.ping();
+  });
+}, 5000);
+
+wss.on('close', function close() {
+  clearInterval(interval);
+});
 
 // app.get('/', (req, res) => {
 // 	res.sendFile(path.join(__dirname+'/public/index.html'))
