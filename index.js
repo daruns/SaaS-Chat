@@ -176,7 +176,7 @@ const getRoomByUserId = async function(userId) {
 			if (foundNd) {
         await Object.keys(foundNd)
         .forEach(ef => {
-          roomMessage['msg_recepeint_' + ef] = roomMessage[ef]
+          roomMessage['msg_recepeint_' + ef] = foundNd[ef]
         })
       }
 		}
@@ -307,7 +307,7 @@ const getMessageById = async function(id) {
 	if (message && message.message_recipients) {
 		await Object.keys(message.message_recipients.find(qt => {return qt.user_id === userId } ))
 		.forEach(ef => {
-			message['msg_recepeint_' + ef] = message[ef]
+			message['msg_recepeint_' + ef] = message.message_recipients[ef]
 		})
 	}
   return message
@@ -424,8 +424,8 @@ wss.on('connection', function(ws, req) {
 
 	console.log("client socket id: ", socketId);
 	ws.on('message', async function(message) {
-    console.log('received: %s', message);
-		const parsedMessage = JSON.parse(message)
+    const parsedMessage = JSON.parse(message)
+    if (!parsedMessage.ping) console.log('received: %s', message);
 // authunticate user
 		if (parsedMessage.accessToken) {
 			authenticatedUs = parsedMessage.accessToken
@@ -551,25 +551,27 @@ wss.on('connection', function(ws, req) {
 					const roomUsers = _.uniq(parsedMessage.addRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter( i => {return i != currentUser.id} )
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
 					if (areUsersExistInUsers) {
+            const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.addRoomUsers.id})
 						const isRoomExist = await Room.query().findById(parsedMessage.addRoomUsers.id)
 						.withGraphFetched({roomUsers: true})
-						const pureUsers = isRoomExist.roomUsers.filter(i => {return !roomUsers.includes(i)})
+						const pureUsers = roomUsers.filter(i => {return !isRoomExist.roomUsers.map(e => e.user_id).includes(i)})
 						const areUsersExistInRoomById = (await areUsersExistInRoom(pureUsers, parsedMessage.addRoomUsers.id))
 						if (isRoomExist && isRoomExist.room_type && isRoomExist.room_type === 'channel' && existMyUserInRoom && areUsersExistInUsers && !areUsersExistInRoomById) {
-							let roomUsersId = pureUsers.map(id=> {return {user_id: id}})
-							for (let room of roomUsersId) {
+              console.log(pureUsers)
+							for (let room of pureUsers) {
 								if (isRoomExist.creator_id === currentUser.id) {
-									await isRoomExist.$relatedQuery('users').relate(room.user_id)
+									await isRoomExist.$relatedQuery('users').relate(room)
 									console.log("addeded user: ", isRoomExist,currentUser.id)
 								} else {
-									if (room.user_id !== currentUser.id) {
+									if (room !== currentUser.id) {
 										let pendingActionParams = {
-											user_id: room.user_id,
+											user_id: room,
 											room_id: isRoomExist.id,
 											from_user_id: currentUser.id,
 											stage: 'pending',
 											action: "addUser",
 										}
+                    console.log("pendingActionParams", pendingActionParams)
 										const roomPendingAction = await RoomPendingAction.query().findOne(pendingActionParams)
 										if (!roomPendingAction) {
 											console.log("added pending: ", roomPendingAction)
@@ -649,7 +651,7 @@ wss.on('connection', function(ws, req) {
 					}
 //recieve delete users from room
 				} else if (parsedMessage.deleteRoomUsers && parsedMessage.deleteRoomUsers.id && parsedMessage.deleteRoomUsers.users && parsedMessage.deleteRoomUsers.users.length) {
-					const roomUsers = _.uniq(parsedMessage.deleteRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter(function( element ) {return element !== undefined});
+          const roomUsers = _.uniq(parsedMessage.deleteRoomUsers.users.map(e => {if ( parseInt(e) ) {return parseInt(e)} else {return 0}} ).filter(e => e!==0)).filter(function( element ) {return element !== undefined});
 					const isRoomExist = await Room.query().findById(parsedMessage.deleteRoomUsers.id).withGraphFetched({users: true,messages: true})
 					const existMyUserInRoom = await RoomUser.query().findOne({user_id: currentUser.id, room_id: parsedMessage.deleteRoomUsers.id})
 					const areUsersExistInUsers = (await areUsersExist(roomUsers, currentUser.brand_code))
@@ -677,6 +679,9 @@ wss.on('connection', function(ws, req) {
 							if (roomUsers.length === 1 && roomUsers[0] === currentUser.id) {
                 if (isRoomExist.messages && isRoomExist.messages.length === 0) {
                   await isRoomExist.$query().delete()
+                }
+                if ( isRoomExist.users.length === 2 ) {
+                  isRoomExist.length
                 }
 								await isRoomExist.$relatedQuery('users')
 								.unrelate()
@@ -872,19 +877,19 @@ wss.on('connection', function(ws, req) {
 	})
 })
 
-const interval = setInterval(function ping() {
-  wss.clients.forEach(function each(ws) {
-    if (ws.isAlive === false) return ws.terminate();
-    const socketId = ws._socket._handle.fd
-    ws.isAlive = false;
-    console.log("socketInterval: ", ws.Context, socketId)
-    ws.ping();
-  });
-}, 5000);
+// const interval = setInterval(function ping() {
+//   wss.clients.forEach(function each(ws) {
+//     if (ws.isAlive === false) return ws.terminate();
+//     const socketId = ws._socket._handle.fd
+//     ws.isAlive = false;
+//     console.log("socketInterval: ", ws.Context, socketId)
+//     ws.ping();
+//   });
+// }, 5000);
 
-wss.on('close', function close() {
-  clearInterval(interval);
-});
+// wss.on('close', function close() {
+//   clearInterval(interval);
+// });
 
 // app.get('/', (req, res) => {
 // 	res.sendFile(path.join(__dirname+'/public/index.html'))
