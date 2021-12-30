@@ -255,8 +255,8 @@ const deliverAllUnreadMessagesPerRoom = async function(roomId,userId) {
 	.update({'message_recipients.status':"seen"})
 }
 
-const getMessageById = async function(id) {
-	let message = Message.query()
+const getMessageById = async function(id,userId) {
+	let message = await Message.query()
 	.select('messages.id')
 	.select('messages.text')
 	.select('messages.user_id')
@@ -304,12 +304,16 @@ const getMessageById = async function(id) {
 		]
 		`
 	)
-	if (message && message.message_recipients) {
-		await Object.keys(message.message_recipients.find(qt => {return qt.user_id === userId } ))
-		.forEach(ef => {
-			message['msg_recepeint_' + ef] = message.message_recipients[ef]
-		})
+	if (message && message.messageRecipients) {
+    let foundNd = message.messageRecipients.find(qt => {return qt.user_id === userId } )
+    if (foundNd) {
+      await Object.keys(foundNd)
+      .forEach(ef => {
+        message['msg_recepeint_' + ef] = foundNd[ef]
+      })
+    }
 	}
+  console.log("message, message.messageRecipients: ", message, message.messageRecipients)
   return message
 }
 
@@ -744,7 +748,7 @@ wss.on('connection', function(ws, req) {
 							await Object.keys(msgRecipientsParams).forEach(async msrcparam => {
 								msg.$relatedQuery('messageRecipients').insert({user_id: msrcparam,status: msgRecipientsParams[msrcparam] }).then((resss) => {console.log("messageRecipients: ",resss)})
 							})
-							const messfinal = await getMessageById(msg.id)
+							const messfinal = await getMessageById(msg.id, currentUser.id)
               console.log(messfinal)
 							let resx = JSON.stringify({messagePerRoom: {messfinal:messfinal}, reqType: 'createMessage'})
 							await wss.clients.forEach(async function (client) {
