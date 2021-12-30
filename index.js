@@ -122,11 +122,37 @@ const getRoomByUserId = async function(userId) {
 
 	for (let x = 0; x < rooms.rooms.length;x++) {
 		let roomPendingAction = await RoomPendingAction.query()
+    .select('room_users_pending_actions.id')
+    .select('room_users_pending_actions.action')
+    .select('room_users_pending_actions.created_at')
+    .select('room_users_pending_actions.from_user_id')
+    .select('room_users_pending_actions.room_id')
+    .select('room_users_pending_actions.stage')
+    .select('room_users_pending_actions.user_id')
 		.where({
-			room_id: rooms.rooms[x].id,
+      room_id: rooms.rooms[x].id,
 			stage: "pending",
 			action: "addUser"
 		})
+    .modifiers({
+			selectUserId(builder) {
+				builder.select('users.id');
+				builder.select('users.username');
+				builder.select('users.name');
+				builder.select('users.avatar');
+				builder.select('users.email');
+				builder.select('users.phone_number');
+				builder.select('users.created_at');
+			},
+    })
+    .withGraphFetched(
+			`
+			[
+				fromUser(selectUserId),
+				user(selectUserId)
+			]
+			`
+		);
 		let roomMessage = await Message.query()
 		.select('messages.id')
 		.select('messages.text')
